@@ -1,0 +1,188 @@
+<resources>
+    <!-- Russian, for phones set to Russian; English, the default, is in values. A new string goes into both. -->
+    <string name="app_name">Пастух</string>
+
+    <string name="settings_title">Настройки</string>
+    <string name="servers_title">Серверы</string>
+    <string name="server_add">Добавить сервер</string>
+    <string name="server_address">%1$s@%2$s:%3$d, сессия «%4$s»</string>
+    <string name="server_new">Новый сервер</string>
+    <string name="server_edit">Сервер</string>
+    <string name="server_name">Название (необязательно)</string>
+    <string name="server_name_default">В списке: %1$s</string>
+    <string name="server_host">Хост</string>
+    <string name="server_port">Порт</string>
+    <string name="server_user">Пользователь</string>
+    <string name="server_herdr_path">Путь к herdr</string>
+    <string name="server_session">Сессия herdr</string>
+    <string name="server_save">Сохранить</string>
+    <string name="server_delete">Удалить сервер</string>
+    <string name="server_delete_title">Удалить сервер?</string>
+    <string name="server_delete_text">«%1$s» уйдёт из списка вместе со своими агентами. На самом сервере ничего не изменится.</string>
+    <string name="server_delete_confirm">Удалить</string>
+    <string name="server_off">Выключен</string>
+
+    <string name="notify_title">Уведомления</string>
+    <string name="notify_switch">Сообщать об агентах</string>
+    <string name="notify_switch_hint">Агент ждёт ответа или закончил работу, а приложение закрыто</string>
+    <string name="notify_not_allowed">Android не разрешает приложению уведомления</string>
+    <string name="notify_watch">Следить после ухода из приложения</string>
+    <string name="notify_watch_hint">Пока статусы меняются и ещё %1$d мин после: уведомление приходит за пару секунд. Дальше — проверка раз в 15 минут.</string>
+    <string name="notify_watch_none">Сразу проверка раз в 15 минут.</string>
+    <string name="notify_watch_off">Выкл</string>
+    <string name="notify_watch_minutes">%1$d мин</string>
+    <string name="notify_channels">События и звук</string>
+    <string name="notify_channels_hint">«Агент ждёт ответа» и «Агент закончил» в настройках Android</string>
+    <string name="notify_battery">Работа в фоне</string>
+    <string name="notify_battery_unrestricted">Без ограничений: проверки идут вовремя</string>
+    <string name="notify_battery_restricted">Android может откладывать проверки на час и больше. Нажмите, чтобы снять ограничения.</string>
+    <string name="notify_last_check">Последняя проверка в фоне: %1$s. Ответило серверов: %2$d из %3$d.</string>
+    <string name="notify_no_check">Проверок в фоне ещё не было.</string>
+
+    <string name="alerts_channel_blocked">Агент ждёт ответа</string>
+    <string name="alerts_channel_done">Агент закончил</string>
+    <string name="alerts_blocked">Ждёт ответа</string>
+    <string name="alerts_done">Закончил работу</string>
+    <string name="watch_channel">Наблюдение за агентами</string>
+    <string name="watch_notification">Слежу за агентами</string>
+    <string name="watch_until">До %1$s, если ничего не изменится</string>
+    <string name="watch_stop">Хватит</string>
+
+    <string name="key_title">Ключ телефона</string>
+    <string name="key_missing">Ключа ещё нет. Создайте его и добавьте строку в ~/.ssh/authorized_keys на каждом сервере.</string>
+    <string name="key_generate">Создать ключ</string>
+    <string name="key_hint">Добавьте эту строку в ~/.ssh/authorized_keys на каждом сервере.</string>
+    <string name="key_copy">Копировать</string>
+    <string name="key_share">Поделиться</string>
+    <string name="key_copied">Ключ скопирован</string>
+    <string name="key_fingerprint">Отпечаток: %1$s</string>
+
+    <string name="state_no_key">Нет ключа телефона: создайте его в настройках.</string>
+    <string name="state_disconnected">Не подключено.</string>
+    <string name="state_connecting">Подключаюсь…</string>
+    <string name="state_restart_needed">Сервер herdr работает на старом бинарнике: терминал заработает после перезапуска сервера.</string>
+    <string name="state_retry">Повтор через %1$d с.</string>
+
+    <string name="problem_unknown_host_key">Сервер ещё не проверен: подтвердите его ключ.</string>
+    <string name="problem_host_key_changed">Ключ сервера изменился. Подключение остановлено.</string>
+    <string name="problem_key_rejected">Сервер не принял ключ телефона. Добавьте его в ~/.ssh/authorized_keys.</string>
+    <string name="problem_local_network">Нет разрешения на доступ к устройствам в локальной сети.</string>
+    <string name="problem_unreachable">Сервер недоступен: %1$s</string>
+    <string name="problem_herdr_missing">herdr не найден по пути %1$s.</string>
+    <string name="problem_herdr_not_running">Сервер herdr не запущен для этой сессии.</string>
+    <string name="problem_herdr_too_old">herdr %1$s слишком старый, нужен 0.9.5 или новее.</string>
+    <string name="problem_wrong_protocol">Неизвестная версия протокола herdr: %1$s.</string>
+    <string name="problem_other">Ошибка: %1$s</string>
+
+    <string name="host_key_title">Новый сервер «%1$s»</string>
+    <string name="host_key_text">Отпечаток ключа сервера:\n%1$s\n\nСверьте его с выводом на сервере:\nssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</string>
+    <string name="host_key_changed_title">Ключ сервера «%1$s» изменился</string>
+    <string name="host_key_changed_text">Был:\n%1$s\nСейчас:\n%2$s\n\nЕсли сервер не переустанавливали, кто-то может перехватывать соединение.</string>
+    <string name="host_key_trust">Доверять</string>
+    <string name="host_key_trust_new">Доверять новому</string>
+    <string name="cancel">Отмена</string>
+
+    <string name="agents_title">Агенты</string>
+    <string name="agents_settings">Настройки</string>
+    <string name="agents_no_servers">Серверов пока нет: добавьте сервер, за агентами которого следить.</string>
+    <string name="agents_empty">В сессии нет панелей.</string>
+    <string name="agents_loading">Загружаю список…</string>
+    <string name="agents_stale">Список мог устареть: %1$s</string>
+    <string name="agents_waiting_badge">ждёт ответа</string>
+    <string name="agents_other_panes">Прочие панели</string>
+    <string name="agents_workspace">%1$s · №%2$d</string>
+
+    <string name="status_blocked">Ждёт ответа</string>
+    <string name="status_done">Готово</string>
+    <string name="status_working">Работает</string>
+    <string name="status_idle">Свободен</string>
+    <string name="status_unknown">Неизвестно</string>
+
+    <string name="agent_back">Назад</string>
+    <string name="agent_prompt_hint">Промпт агенту</string>
+    <string name="agent_send">Отправить</string>
+    <string name="agent_no_screen">Жду экран панели…</string>
+    <string name="error_agent_blocked">Агент ждёт ответа в диалоге — ответьте кнопками.</string>
+    <string name="error_agent_not_ready">Агент уже не запущен в этой панели.</string>
+    <string name="agent_starting">Агент запускается…</string>
+    <string name="error_agent_starting">Агент ещё запускается, подождите пару секунд.</string>
+    <string name="error_pane_busy">Агента можно запустить только из приглашения шелла, а в панели сейчас другая программа.</string>
+    <string name="error_close_confirm">herdr просит подтвердить закрытие на компьютере: панель входит в группу worktree.</string>
+    <string name="agent_switch">Другие панели</string>
+    <string name="agent_current_pane">Открыта сейчас</string>
+    <string name="pane_menu">Действия с панелью</string>
+    <string name="pane_new_session">%1$s в новой вкладке</string>
+    <string name="pane_start_agent">Запустить %1$s здесь</string>
+    <string name="pane_new_session_header">В новой вкладке</string>
+    <string name="pane_start_header">Запустить здесь</string>
+    <string name="pane_agents_loading">Ищу агентов на машине…</string>
+    <string name="pane_agents_none">На машине нет агентов, которых умеет запускать herdr</string>
+    <string name="pane_close">Закрыть панель</string>
+    <string name="pane_close_title">Закрыть панель?</string>
+    <string name="pane_close_text">«%1$s» закроется вместе со всем, что в ней запущено.</string>
+    <string name="pane_close_working">Агент в ней сейчас работает.</string>
+    <string name="pane_close_last">Это последняя панель workspace «%1$s»: он закроется тоже.</string>
+    <string name="pane_close_confirm">Закрыть</string>
+    <string name="error_herdr">Ошибка herdr: %1$s</string>
+    <string name="error_connection">Нет связи с herdr: %1$s</string>
+    <string name="terminal_open">Терминал</string>
+    <string name="terminal_title">Терминал %1$s</string>
+    <string name="terminal_resize_note">Пока открыт терминал, панель на компьютере имеет размер телефона.</string>
+    <string name="terminal_connecting">Подключаю терминал…</string>
+    <string name="terminal_takeover_title">Панелью уже управляют</string>
+    <string name="terminal_takeover_text">Другой клиент управляет этой панелью напрямую. Перехватить управление?</string>
+    <string name="terminal_takeover">Перехватить</string>
+    <string name="terminal_taken_over">Управление перехватил другой клиент.</string>
+    <string name="terminal_detached">Терминал отключён.</string>
+    <string name="terminal_not_found">Панели больше нет.</string>
+    <string name="terminal_server_updating">Сервер herdr обновляется, подключитесь позже.</string>
+    <string name="terminal_ended">Соединение с терминалом прервалось.</string>
+    <string name="terminal_failed">Не удалось открыть терминал: %1$s</string>
+    <string name="terminal_reconnect">Подключить снова</string>
+    <string name="terminal_paste">Вставить</string>
+    <string name="terminal_take_back">Вернуть управление</string>
+
+    <string name="files_open">Файлы</string>
+    <string name="files_incoming">Входящие</string>
+    <string name="files_outgoing">Исходящие</string>
+    <string name="files_on_screen">На экране</string>
+    <string name="files_earlier">Найдено раньше</string>
+    <string name="files_none_on_screen">На экране нет путей к файлам.</string>
+    <string name="files_incoming_empty">Здесь появятся файлы, пути к которым видны на экране агента. Тап скачивает файл и открывает его.</string>
+    <string name="files_checking">проверяю…</string>
+    <string name="files_missing">не найдено</string>
+    <string name="files_downloading">скачивается %1$d %%</string>
+    <string name="files_download_failed">не скачан: %1$s</string>
+    <string name="files_downloaded">скачан</string>
+    <string name="files_changed">изменился на хосте</string>
+    <string name="files_gone">нет на хосте</string>
+    <string name="files_cancel">Отменить</string>
+    <string name="files_forget">Убрать из списка</string>
+    <string name="files_clear">Очистить всё</string>
+    <string name="files_clear_title">Очистить список?</string>
+    <string name="files_clear_incoming">Все найденные файлы уйдут из списка. Скачанные копии останутся на телефоне.</string>
+    <string name="files_clear_outgoing">Все отправленные файлы уйдут из списка. На хосте они останутся.</string>
+    <string name="files_clear_confirm">Очистить</string>
+    <string name="files_path_hint">Путь к файлу на хосте</string>
+    <string name="files_path_add">Добавить</string>
+    <string name="files_path_missing">Такого файла на хосте нет</string>
+    <string name="files_path_not_file">Это не файл</string>
+    <string name="files_no_connection">Нет связи с хостом</string>
+    <string name="files_no_viewer">Нечем открыть %1$s</string>
+    <string name="files_send">Отправить файлы</string>
+    <string name="files_outgoing_empty">Здесь появятся файлы, отправленные с телефона на хост. Тап по файлу вставляет его путь в промпт.</string>
+    <string name="files_uploading">отправляется %1$d %%</string>
+    <string name="files_upload_failed">не отправлен: %1$s</string>
+    <string name="files_retry">Повторить</string>
+    <string name="files_dismiss">Убрать</string>
+    <string name="files_path_copied">Путь скопирован: %1$s</string>
+    <string name="transfers_channel">Передача файлов</string>
+    <string name="transfers_notification">Пастух передаёт файлы</string>
+    <string-array name="file_size_units">
+        <item>Б</item>
+        <item>КБ</item>
+        <item>МБ</item>
+        <item>ГБ</item>
+        <item>ТБ</item>
+    </string-array>
+</resources>

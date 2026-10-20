@@ -1,0 +1,188 @@
+<resources>
+    <!-- English is the default; values-ru has Russian, for phones set to Russian. A new string goes into both. -->
+    <string name="app_name">Shepherd</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="servers_title">Servers</string>
+    <string name="server_add">Add server</string>
+    <string name="server_address">%1$s@%2$s:%3$d, session “%4$s”</string>
+    <string name="server_new">New server</string>
+    <string name="server_edit">Server</string>
+    <string name="server_name">Name (optional)</string>
+    <string name="server_name_default">Listed as %1$s</string>
+    <string name="server_host">Host</string>
+    <string name="server_port">Port</string>
+    <string name="server_user">User</string>
+    <string name="server_herdr_path">Path to herdr</string>
+    <string name="server_session">herdr session</string>
+    <string name="server_save">Save</string>
+    <string name="server_delete">Delete server</string>
+    <string name="server_delete_title">Delete server?</string>
+    <string name="server_delete_text">“%1$s” leaves the list with its agents. Nothing changes on the server itself.</string>
+    <string name="server_delete_confirm">Delete</string>
+    <string name="server_off">Off</string>
+
+    <string name="notify_title">Notifications</string>
+    <string name="notify_switch">Notify about agents</string>
+    <string name="notify_switch_hint">An agent needs input or finished while the app is closed</string>
+    <string name="notify_not_allowed">Android doesn\'t allow the app to show notifications</string>
+    <string name="notify_watch">Keep watching after leaving the app</string>
+    <string name="notify_watch_hint">While statuses change and for %1$d min after: a notification comes within seconds. Then a check every 15 minutes.</string>
+    <string name="notify_watch_none">Straight to a check every 15 minutes.</string>
+    <string name="notify_watch_off">Off</string>
+    <string name="notify_watch_minutes">%1$d min</string>
+    <string name="notify_channels">Events and sound</string>
+    <string name="notify_channels_hint">“Agent needs input” and “Agent finished” in Android settings</string>
+    <string name="notify_battery">Background work</string>
+    <string name="notify_battery_unrestricted">Unrestricted: checks run on time</string>
+    <string name="notify_battery_restricted">Android may put checks off for an hour or more. Tap to lift the restrictions.</string>
+    <string name="notify_last_check">Last background check: %1$s. Servers answered: %2$d of %3$d.</string>
+    <string name="notify_no_check">No background checks yet.</string>
+
+    <string name="alerts_channel_blocked">Agent needs input</string>
+    <string name="alerts_channel_done">Agent finished</string>
+    <string name="alerts_blocked">Needs input</string>
+    <string name="alerts_done">Finished</string>
+    <string name="watch_channel">Agent watch</string>
+    <string name="watch_notification">Watching agents</string>
+    <string name="watch_until">Until %1$s unless something changes</string>
+    <string name="watch_stop">Stop</string>
+
+    <string name="key_title">Phone key</string>
+    <string name="key_missing">No key yet. Create one and add its line to ~/.ssh/authorized_keys on every server.</string>
+    <string name="key_generate">Create key</string>
+    <string name="key_hint">Add this line to ~/.ssh/authorized_keys on every server.</string>
+    <string name="key_copy">Copy</string>
+    <string name="key_share">Share</string>
+    <string name="key_copied">Key copied</string>
+    <string name="key_fingerprint">Fingerprint: %1$s</string>
+
+    <string name="state_no_key">No phone key: create one in Settings.</string>
+    <string name="state_disconnected">Not connected.</string>
+    <string name="state_connecting">Connecting…</string>
+    <string name="state_restart_needed">The herdr server runs an old binary: the terminal works once the server is restarted.</string>
+    <string name="state_retry">Retrying in %1$d s.</string>
+
+    <string name="problem_unknown_host_key">The server isn\'t verified yet: confirm its key.</string>
+    <string name="problem_host_key_changed">The server\'s key has changed. Connection stopped.</string>
+    <string name="problem_key_rejected">The server didn\'t accept the phone key. Add it to ~/.ssh/authorized_keys.</string>
+    <string name="problem_local_network">No permission to reach devices on the local network.</string>
+    <string name="problem_unreachable">Server unreachable: %1$s</string>
+    <string name="problem_herdr_missing">herdr not found at %1$s.</string>
+    <string name="problem_herdr_not_running">The herdr server isn\'t running for this session.</string>
+    <string name="problem_herdr_too_old">herdr %1$s is too old: 0.9.5 or newer is needed.</string>
+    <string name="problem_wrong_protocol">Unknown herdr protocol version: %1$s.</string>
+    <string name="problem_other">Error: %1$s</string>
+
+    <string name="host_key_title">New server “%1$s”</string>
+    <string name="host_key_text">Server key fingerprint:\n%1$s\n\nCompare it with the output on the server:\nssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</string>
+    <string name="host_key_changed_title">The key of server “%1$s” has changed</string>
+    <string name="host_key_changed_text">Was:\n%1$s\nNow:\n%2$s\n\nIf the server wasn\'t reinstalled, someone may be intercepting the connection.</string>
+    <string name="host_key_trust">Trust</string>
+    <string name="host_key_trust_new">Trust the new key</string>
+    <string name="cancel">Cancel</string>
+
+    <string name="agents_title">Agents</string>
+    <string name="agents_settings">Settings</string>
+    <string name="agents_no_servers">No servers yet: add a server whose agents to watch.</string>
+    <string name="agents_empty">No panes in the session.</string>
+    <string name="agents_loading">Loading the list…</string>
+    <string name="agents_stale">The list may be out of date: %1$s</string>
+    <string name="agents_waiting_badge">needs input</string>
+    <string name="agents_other_panes">Other panes</string>
+    <string name="agents_workspace">%1$s · #%2$d</string>
+
+    <string name="status_blocked">Needs input</string>
+    <string name="status_done">Done</string>
+    <string name="status_working">Working</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_unknown">Unknown</string>
+
+    <string name="agent_back">Back</string>
+    <string name="agent_prompt_hint">Prompt for the agent</string>
+    <string name="agent_send">Send</string>
+    <string name="agent_no_screen">Waiting for the pane\'s screen…</string>
+    <string name="error_agent_blocked">The agent is waiting for an answer in a dialog: answer with the buttons.</string>
+    <string name="error_agent_not_ready">The agent no longer runs in this pane.</string>
+    <string name="agent_starting">The agent is starting…</string>
+    <string name="error_agent_starting">The agent is still starting, wait a couple of seconds.</string>
+    <string name="error_pane_busy">An agent starts only from a shell prompt, and another program is running in the pane now.</string>
+    <string name="error_close_confirm">herdr asks to confirm closing on the computer: the pane belongs to a worktree group.</string>
+    <string name="agent_switch">Other panes</string>
+    <string name="agent_current_pane">Open now</string>
+    <string name="pane_menu">Pane actions</string>
+    <string name="pane_new_session">%1$s in a new tab</string>
+    <string name="pane_start_agent">Start %1$s here</string>
+    <string name="pane_new_session_header">In a new tab</string>
+    <string name="pane_start_header">Start here</string>
+    <string name="pane_agents_loading">Looking for agents on the machine…</string>
+    <string name="pane_agents_none">The machine has no agents herdr can start</string>
+    <string name="pane_close">Close pane</string>
+    <string name="pane_close_title">Close pane?</string>
+    <string name="pane_close_text">“%1$s” closes with everything running in it.</string>
+    <string name="pane_close_working">An agent is working in it now.</string>
+    <string name="pane_close_last">This is the last pane of workspace “%1$s”: the workspace closes too.</string>
+    <string name="pane_close_confirm">Close</string>
+    <string name="error_herdr">herdr error: %1$s</string>
+    <string name="error_connection">No connection to herdr: %1$s</string>
+    <string name="terminal_open">Terminal</string>
+    <string name="terminal_title">Terminal %1$s</string>
+    <string name="terminal_resize_note">While the terminal is open, the pane on the computer has the phone\'s size.</string>
+    <string name="terminal_connecting">Connecting the terminal…</string>
+    <string name="terminal_takeover_title">The pane is already controlled</string>
+    <string name="terminal_takeover_text">Another client controls this pane directly. Take control over?</string>
+    <string name="terminal_takeover">Take over</string>
+    <string name="terminal_taken_over">Another client took control over.</string>
+    <string name="terminal_detached">Terminal detached.</string>
+    <string name="terminal_not_found">The pane is gone.</string>
+    <string name="terminal_server_updating">The herdr server is updating, connect later.</string>
+    <string name="terminal_ended">The connection to the terminal broke off.</string>
+    <string name="terminal_failed">Couldn\'t open the terminal: %1$s</string>
+    <string name="terminal_reconnect">Reconnect</string>
+    <string name="terminal_paste">Paste</string>
+    <string name="terminal_take_back">Take control back</string>
+
+    <string name="files_open">Files</string>
+    <string name="files_incoming">Incoming</string>
+    <string name="files_outgoing">Outgoing</string>
+    <string name="files_on_screen">On screen</string>
+    <string name="files_earlier">Found earlier</string>
+    <string name="files_none_on_screen">No file paths on the screen.</string>
+    <string name="files_incoming_empty">Files whose paths show on the agent\'s screen appear here. A tap downloads the file and opens it.</string>
+    <string name="files_checking">checking…</string>
+    <string name="files_missing">not found</string>
+    <string name="files_downloading">downloading %1$d %%</string>
+    <string name="files_download_failed">not downloaded: %1$s</string>
+    <string name="files_downloaded">downloaded</string>
+    <string name="files_changed">changed on the host</string>
+    <string name="files_gone">gone from the host</string>
+    <string name="files_cancel">Cancel</string>
+    <string name="files_forget">Remove from the list</string>
+    <string name="files_clear">Clear all</string>
+    <string name="files_clear_title">Clear the list?</string>
+    <string name="files_clear_incoming">All found files leave the list. Downloaded copies stay on the phone.</string>
+    <string name="files_clear_outgoing">All sent files leave the list. They stay on the host.</string>
+    <string name="files_clear_confirm">Clear</string>
+    <string name="files_path_hint">Path to a file on the host</string>
+    <string name="files_path_add">Add</string>
+    <string name="files_path_missing">No such file on the host</string>
+    <string name="files_path_not_file">Not a file</string>
+    <string name="files_no_connection">No connection to the host</string>
+    <string name="files_no_viewer">Nothing to open %1$s with</string>
+    <string name="files_send">Send files</string>
+    <string name="files_outgoing_empty">Files sent from the phone to the host appear here. A tap on a file puts its path into the prompt.</string>
+    <string name="files_uploading">sending %1$d %%</string>
+    <string name="files_upload_failed">not sent: %1$s</string>
+    <string name="files_retry">Retry</string>
+    <string name="files_dismiss">Dismiss</string>
+    <string name="files_path_copied">Path copied: %1$s</string>
+    <string name="transfers_channel">File transfers</string>
+    <string name="transfers_notification">Shepherd is transferring files</string>
+    <string-array name="file_size_units">
+        <item>B</item>
+        <item>KB</item>
+        <item>MB</item>
+        <item>GB</item>
+        <item>TB</item>
+    </string-array>
+</resources>
