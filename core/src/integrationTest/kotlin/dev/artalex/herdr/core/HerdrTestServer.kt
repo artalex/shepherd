@@ -6,6 +6,7 @@ import dev.artalex.herdr.core.proto.readNdjsonLine
 import dev.artalex.herdr.core.proto.writeNdjsonLine
 import dev.artalex.herdr.core.transport.ByteStream
 import dev.artalex.herdr.core.transport.HerdrTransport
+import dev.artalex.herdr.core.transport.ProcessStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -15,6 +16,7 @@ import java.nio.channels.SocketChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -71,6 +73,12 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
     return bin
   }
 
+  /** Stops the server the way `herdr server stop` does; the session stays, as on a host where herdr was stopped. */
+  fun stop() {
+    run(listOf(binary, "--session", session, "server", "stop"))
+    check(server.waitFor(10, TimeUnit.SECONDS)) { "herdr test server did not stop; see $dir/server.log" }
+  }
+
   override fun close() {
     runCatching { run(listOf(binary, "--session", session, "server", "stop")) }
     server.destroy()
@@ -83,19 +91,25 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
     while (System.nanoTime() < deadline) {
       val out = runCatching { run(listOf(binary, "--session", session, "status", "--json")) }.getOrNull()
-      val status = out?.let { runCatching { HostStatus.parse(it) }.getOrNull() }
+      // A status the client can't decode fails the test instead of counting as "not up yet", which hid that a
+      // stopped server's status didn't decode.
+      val status = out?.takeIf { it.isNotBlank() }?.let { HostStatus.parse(it) }
       if (status?.server?.running == true) return status.server.socket
       Thread.sleep(100)
     }
     error("herdr test server did not start; see $dir/server.log")
   }
 
-  private fun start(argv: List<String>, log: File? = null): Process =
+  private fun start(argv: List<String>, log: File? = null, errors: File? = null): Process =
     ProcessBuilder(argv)
       .apply {
         environment().keys.removeIf { it.startsWith("HERDR_") }
         environment().putAll(env)
-        if (log != null) redirectOutput(log).redirectErrorStream(true) else redirectError(ProcessBuilder.Redirect.DISCARD)
+        when {
+          log != null -> redirectOutput(log).redirectErrorStream(true)
+          errors != null -> redirectError(errors)
+          else -> redirectError(ProcessBuilder.Redirect.DISCARD)
+        }
       }
       .start()
 
@@ -108,6 +122,8 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
 
   /** API over the Unix socket, exec as a local process with the isolated environment. */
   private inner class LocalTransport : HerdrTransport {
+    private val execs = AtomicInteger()
+
     override fun openApi(): ByteStream {
       val channel = SocketChannel.open(UnixDomainSocketAddress.of(socket))
       return object : ByteStream {
@@ -122,11 +138,15 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
       }
     }
 
-    override fun exec(argv: List<String>): ByteStream {
-      val p = start(argv)
-      return object : ByteStream {
+    override fun exec(argv: List<String>): ProcessStream {
+      val errors = File("$dir/exec-${execs.incrementAndGet()}.stderr")
+      val p = start(argv, errors = errors)
+      return object : ProcessStream {
         override val input: InputStream = p.inputStream
         override val output: OutputStream = p.outputStream
+        override val stderr: String get() = errors.readText()
+
+        override fun exitStatus(): Int = p.waitFor()
 
         override fun close() {
           p.destroy()

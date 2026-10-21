@@ -2,12 +2,17 @@ package dev.artalex.herdr.ui.common
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
@@ -19,9 +24,29 @@ fun KeyTarget(content: @Composable () -> Unit) = CompositionLocalProvider(LocalM
 
 /** A key of the rows over the keyboard: little room around the label, so more keys fit; one-character keys come out round. */
 @Composable
-fun RowKey(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) =
+fun RowKey(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) = Key(label, onClick, modifier, ButtonDefaults.outlinedButtonColors())
+
+/** Shift or Ctrl in such a row: as big as the other keys, and filled while it is on. */
+@Composable
+fun ModKey(label: String, on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) =
+  Key(
+    label,
+    onClick,
+    modifier.semantics { selected = on },
+    if (on) {
+      ButtonDefaults.outlinedButtonColors(
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+      )
+    } else {
+      ButtonDefaults.outlinedButtonColors()
+    },
+  )
+
+@Composable
+private fun Key(label: String, onClick: () -> Unit, modifier: Modifier, colors: ButtonColors) =
   KeyTarget {
-    OutlinedButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 8.dp), modifier = modifier.widthIn(min = 40.dp)) {
+    OutlinedButton(onClick = onClick, colors = colors, contentPadding = PaddingValues(horizontal = 8.dp), modifier = modifier.widthIn(min = 40.dp)) {
       Text(label)
     }
   }

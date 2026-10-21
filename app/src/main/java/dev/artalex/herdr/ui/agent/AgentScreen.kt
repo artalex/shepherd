@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -25,7 +26,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,23 +69,30 @@ import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.store.Board
 import dev.artalex.herdr.ui.agents.paneSubtitle
 import dev.artalex.herdr.ui.agents.paneTitle
+import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.RowKey
 import dev.artalex.herdr.ui.common.StatusChip
 import dev.artalex.herdr.ui.files.FilesSheet
 import kotlinx.coroutines.launch
 
-/** Label on the button and the herdr logical key it sends. */
+/** Label on the button and the herdr logical key it sends; Shift and Ctrl come right after the arrows. */
 private val QUICK_KEYS =
-  listOf(
-    "1" to "1", "2" to "2", "3" to "3", "Enter" to "enter", "Esc" to "esc",
-    "↑" to "up", "↓" to "down", "←" to "left", "→" to "right", "Tab" to "tab", "Ctrl+C" to "ctrl+c",
-  )
+  listOf("1" to "1", "2" to "2", "3" to "3", "Enter" to "enter", "Esc" to "esc", "↑" to "up", "↓" to "down", "←" to "left", "→" to "right")
+
+/** The keys after Shift and Ctrl. */
+private val MORE_KEYS = listOf("Tab" to "tab", "Ctrl+C" to "ctrl+c")
 
 /**
  * Keys the sticky Shift goes with: Shift+Tab switches Claude Code's modes, and Shift with an arrow moves between the
  * parts of a dialog in Codex. herdr sends Shift with a digit as the digit, and Shift+Esc as a sequence few programs know.
  */
 private val SHIFT_KEYS = setOf("up", "down", "left", "right", "tab")
+
+/**
+ * Keys of the row the sticky Ctrl goes with: with an arrow it moves by words. herdr sends Ctrl with a digit, Enter or
+ * Tab as the plain key. A letter for Ctrl comes from the keyboard, typed into the prompt.
+ */
+private val CTRL_KEYS = setOf("up", "down", "left", "right")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -183,29 +191,43 @@ fun AgentScreen(
           Snackbar(it, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
         }
       }
-      // Shift holds for the next key, as in the terminal.
+      // Shift and Ctrl hold for the next key, as in the terminal.
       var shift by remember { mutableStateOf(false) }
+      var ctrl by remember { mutableStateOf(false) }
+      fun send(key: String) {
+        val mods = listOfNotNull("ctrl".takeIf { ctrl && key in CTRL_KEYS }, "shift".takeIf { shift && key in SHIFT_KEYS })
+        viewModel.sendKeys(listOf((mods + key).joinToString("+")))
+        shift = false
+        ctrl = false
+      }
       LazyRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("quickKeys"),
       ) {
-        item { FilterChip(selected = shift, onClick = { shift = !shift }, label = { Text("Shift") }, modifier = Modifier.testTag("mod-shift")) }
-        items(QUICK_KEYS) { (label, key) ->
-          RowKey(
-            label,
-            onClick = {
-              viewModel.sendKeys(listOf(if (shift && key in SHIFT_KEYS) "shift+$key" else key))
-              shift = false
-            },
-            modifier = Modifier.testTag("key-$key"),
-          )
-        }
+        items(QUICK_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
+        item { ModKey("Shift", on = shift, onClick = { shift = !shift }, modifier = Modifier.testTag("mod-shift")) }
+        item { ModKey("Ctrl", on = ctrl, onClick = { ctrl = !ctrl }, modifier = Modifier.testTag("mod-ctrl")) }
+        items(MORE_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
       }
       if (pane?.agent != null) {
         PromptRow(
           value = prompt,
-          onValueChange = { prompt = it },
+          onValueChange = { next ->
+            val typed = if (ctrl) typedChar(prompt, next) else null
+            if (typed == null) {
+              prompt = next
+            } else {
+              // Ctrl goes with the next character typed: a Latin letter goes to the agent as Ctrl and that letter,
+              // anything else into the prompt as usual.
+              ctrl = false
+              val letter = typed.lowercaseChar()
+              if (letter in 'a'..'z') viewModel.sendKeys(listOf("ctrl+$letter")) else prompt = next
+            }
+          },
+          // While Ctrl is on, the keyboard is asked for no suggestions: it sends a letter as it is typed, not as a word
+          // in the making that it would put back into the prompt after the letter went to the agent.
+          keyboard = if (ctrl) KeyboardOptions(keyboardType = KeyboardType.PasswordVisible, autoCorrectEnabled = false) else KeyboardOptions.Default,
           focus = promptFocus,
           starting = view?.starting == true,
           onSend = {
@@ -414,11 +436,19 @@ private fun CloseDialog(pane: PaneInfo, board: Board?, onConfirm: () -> Unit, on
 
 /** While a just-started agent isn't ready, text can be typed but not sent: herdr would refuse it. */
 @Composable
-private fun PromptRow(value: TextFieldValue, onValueChange: (TextFieldValue) -> Unit, focus: FocusRequester, starting: Boolean, onSend: (String) -> Unit) {
+private fun PromptRow(
+  value: TextFieldValue,
+  onValueChange: (TextFieldValue) -> Unit,
+  keyboard: KeyboardOptions,
+  focus: FocusRequester,
+  starting: Boolean,
+  onSend: (String) -> Unit,
+) {
   Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
     OutlinedTextField(
       value = value,
       onValueChange = onValueChange,
+      keyboardOptions = keyboard,
       placeholder = { Text(stringResource(if (starting) R.string.agent_starting else R.string.agent_prompt_hint)) },
       maxLines = 4,
       modifier = Modifier.weight(1f).focusRequester(focus).testTag("prompt"),
@@ -427,6 +457,17 @@ private fun PromptRow(value: TextFieldValue, onValueChange: (TextFieldValue) -> 
       Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.agent_send))
     }
   }
+}
+
+/** The one character typed at the cursor that turns [before] into [after], or null for any other edit. */
+private fun typedChar(before: TextFieldValue, after: TextFieldValue): Char? {
+  val at = before.selection.min
+  val inserted =
+    before.selection.collapsed &&
+      after.text.length == before.text.length + 1 &&
+      after.text.startsWith(before.text.substring(0, at)) &&
+      after.text.endsWith(before.text.substring(at))
+  return if (inserted) after.text[at] else null
 }
 
 /** [path] put in at the cursor, with spaces from the words around it; in quotes if it has spaces of its own. */

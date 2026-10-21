@@ -16,8 +16,8 @@ data class HostStatus(val client: Client, val server: Server) {
     val running: Boolean,
     val version: String? = null,
     val protocol: Int? = null,
-    /** CLI and server speak the same private protocol: required for terminal streams. */
-    val compatible: Boolean = false,
+    /** CLI and server speak the same private protocol: required for terminal streams. Null while the server is down. */
+    val compatible: Boolean? = null,
     val socket: String,
   )
 
@@ -45,7 +45,7 @@ fun HostStatus.check(): HostCheck {
     !server.running -> HostCheck.ServerNotRunning
     version == null || compareVersions(version, MIN_HERDR_VERSION) < 0 -> HostCheck.TooOld(version ?: "?")
     server.protocol != SUPPORTED_PROTOCOL -> HostCheck.WrongProtocol(server.protocol)
-    !server.compatible -> HostCheck.RestartNeeded
+    server.compatible != true -> HostCheck.RestartNeeded
     else -> HostCheck.Ok
   }
 }

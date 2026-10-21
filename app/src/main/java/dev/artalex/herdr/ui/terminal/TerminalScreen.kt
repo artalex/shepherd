@@ -21,7 +21,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +54,7 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
 import dev.artalex.herdr.ui.common.KeyTarget
+import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.RowKey
 import dev.artalex.herdr.ui.common.rememberTerminalTypeface
 import dev.artalex.herdr.core.terminal.CloseReason
@@ -201,9 +201,9 @@ private fun ExtraKeysRow(viewModel: TerminalViewModel, onPaste: () -> Unit) {
         }
       }
     }
-    item { FilterChip(selected = modifiers.ctrl, onClick = { modifiers.ctrl = !modifiers.ctrl }, label = { Text("Ctrl") }, modifier = Modifier.touchOnly().testTag("mod-ctrl")) }
-    item { FilterChip(selected = modifiers.alt, onClick = { modifiers.alt = !modifiers.alt }, label = { Text("Alt") }, modifier = Modifier.touchOnly().testTag("mod-alt")) }
-    item { FilterChip(selected = modifiers.shift, onClick = { modifiers.shift = !modifiers.shift }, label = { Text("Shift") }, modifier = Modifier.touchOnly().testTag("mod-shift")) }
+    item { ModKey("Ctrl", on = modifiers.ctrl, onClick = { modifiers.ctrl = !modifiers.ctrl }, modifier = Modifier.touchOnly().testTag("mod-ctrl")) }
+    item { ModKey("Alt", on = modifiers.alt, onClick = { modifiers.alt = !modifiers.alt }, modifier = Modifier.touchOnly().testTag("mod-alt")) }
+    item { ModKey("Shift", on = modifiers.shift, onClick = { modifiers.shift = !modifiers.shift }, modifier = Modifier.touchOnly().testTag("mod-shift")) }
     items(EXTRA_KEYS) { key ->
       RowKey(
         key.label,

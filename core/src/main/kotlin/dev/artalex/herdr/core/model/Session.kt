@@ -69,6 +69,11 @@ data class AgentInfo(
   @SerialName("launch_pending") val launchPending: Boolean = false,
   /** Grows on every status change; lets the UI notice transitions between polls. */
   @SerialName("state_change_seq") val stateChangeSeq: Long = 0,
+  /**
+   * The status change on which the agent finished its work, whether it shows as `done` or as `idle`; null while it
+   * works, asks something or hasn't worked yet.
+   */
+  @SerialName("completion_seq") val completionSeq: Long? = null,
 )
 
 @Serializable

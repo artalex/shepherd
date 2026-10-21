@@ -20,15 +20,18 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
+import dev.artalex.herdr.connection.ConnectionProblem
 import dev.artalex.herdr.connection.ConnectionState
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 /**
  * The real path, as on a new phone: the server form on the first start, then the agent list, where the app connects
- * over SSH to the host machine (10.0.2.2), asks to accept the host key and shows the server's workspaces.
+ * over SSH to the host machine (10.0.2.2), asks to accept the host key and shows the server's workspaces. A session
+ * name herdr refuses is reported there with herdr's reason.
  */
 @OptIn(ExperimentalTestApi::class)
 class ConnectE2eTest {
@@ -56,14 +59,19 @@ class ConnectE2eTest {
     if (::fixture.isInitialized) fixture.close()
   }
 
+  /** The form of the first start, filled in for the host machine and [session]; the name stays empty. */
+  private fun fillServerForm(session: String) {
+    compose.waitUntilExactlyOneExists(hasTestTag("host"), 10_000)
+    compose.onNodeWithTag("host").performTextReplacement(e2e.host)
+    compose.onNodeWithTag("port").performTextReplacement(e2e.port)
+    compose.onNodeWithTag("user").performTextReplacement(e2e.user)
+    compose.onNodeWithTag("session").performTextReplacement(session)
+  }
+
   @Test
   fun firstStartAddsServerAndAcceptsItsKeyOnTheList() {
     launchApp(compose, "firstStartAddsServerAndAcceptsItsKeyOnTheList") {
-      compose.waitUntilExactlyOneExists(hasTestTag("host"), 10_000)
-      compose.onNodeWithTag("host").performTextReplacement(e2e.host)
-      compose.onNodeWithTag("port").performTextReplacement(e2e.port)
-      compose.onNodeWithTag("user").performTextReplacement(e2e.user)
-      compose.onNodeWithTag("session").performTextReplacement(e2e.session)
+      fillServerForm(e2e.session)
       // Without a name of its own the server is listed by host and session.
       val title = "${e2e.host} · ${e2e.session}"
       compose.onNodeWithText(text(R.string.server_name_default, title)).assertExists()
@@ -88,6 +96,24 @@ class ConnectE2eTest {
       compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("board").performScrollToNode(hasText("e2e-connect-$run", substring = true)) }.isSuccess }
       compose.onNodeWithText(title).assertExists()
       Screens.take(compose, "02-connected")
+    }
+  }
+
+  @Test
+  fun sessionNameHerdrRefusesIsReportedOnTheList() {
+    launchApp(compose, "sessionNameHerdrRefusesIsReportedOnTheList") {
+      fillServerForm("my session")
+      Espresso.closeSoftKeyboard()
+      compose.onNodeWithTag("save").performScrollTo().assertIsEnabled().performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("trustHostKey"), 20_000)
+      compose.onNodeWithTag("trustHostKey").performClick()
+
+      // herdr's reason instead of "herdr not found", and no retries: only the settings can fix the name.
+      val reason = "session name may only contain ASCII letters, numbers, '.', '_' and '-'"
+      compose.waitUntilExactlyOneExists(hasText(text(R.string.problem_bad_session, "my session", reason)), 30_000)
+      val server = container.servers.configs.value.single().let { container.servers[it.id] }
+      assertEquals(ConnectionState.Failed(ConnectionProblem.BadSessionName("my session", reason), retryInMs = null), server?.connection?.state?.value)
+      Screens.take(compose, "02b-bad-session")
     }
   }
 }

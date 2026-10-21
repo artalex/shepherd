@@ -69,6 +69,7 @@
     <string name="problem_local_network">Нет разрешения на доступ к устройствам в локальной сети.</string>
     <string name="problem_unreachable">Сервер недоступен: %1$s</string>
     <string name="problem_herdr_missing">herdr не найден по пути %1$s.</string>
+    <string name="problem_bad_session">Имя сессии «%1$s» не подходит herdr: %2$s</string>
     <string name="problem_herdr_not_running">Сервер herdr не запущен для этой сессии.</string>
     <string name="problem_herdr_too_old">herdr %1$s слишком старый, нужен 0.9.5 или новее.</string>
     <string name="problem_wrong_protocol">Неизвестная версия протокола herdr: %1$s.</string>

@@ -4,6 +4,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.artalex.herdr.AppContainer
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.core.host.HerdrHost
+import dev.artalex.herdr.core.host.HostStatus
 import dev.artalex.herdr.core.proto.readNdjsonLine
 import dev.artalex.herdr.core.proto.writeNdjsonLine
 import dev.artalex.herdr.core.servers.ServerConfig
@@ -91,6 +92,26 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
       stream.input.readBytes().toString(Charsets.UTF_8)
     }
 
+  /** Stops the session's herdr server, as `herdr server stop` on the host does; the session keeps its workspaces. */
+  fun stopServer() {
+    exec("$HERDR_PATH --session $session server stop")
+    waitForServer(running = false)
+  }
+
+  /** Starts the session's herdr server again; it brings back the workspaces the session had. */
+  fun startServer() {
+    exec("nohup $HERDR_PATH --session $session server >/dev/null 2>&1 &")
+    waitForServer(running = true)
+  }
+
+  private fun waitForServer(running: Boolean, timeoutMs: Long = 15_000) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (HostStatus.parse(exec("$HERDR_PATH --session $session status --json")).server.running != running) {
+      check(System.currentTimeMillis() < deadline) { "herdr server of $session never got ${if (running) "up" else "down"}" }
+      Thread.sleep(200)
+    }
+  }
+
   /** A new workspace; returns its root pane id. */
   fun workspace(label: String): String =
     raw("workspace.create", buildJsonObject { put("label", label) }).getValue("root_pane").jsonObject.getValue("pane_id").jsonPrimitive.content
@@ -166,6 +187,12 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
   /** Closes [paneId] as the desktop would. */
   fun closePane(paneId: String) {
     raw("pane.close", buildJsonObject { put("pane_id", paneId) })
+  }
+
+  /** Makes the workspace of [paneId] the active one, as switching to it on the desktop would. */
+  fun focusWorkspaceOf(paneId: String) {
+    val workspace = raw("pane.get", buildJsonObject { put("pane_id", paneId) }).getValue("pane").jsonObject.getValue("workspace_id").jsonPrimitive.content
+    raw("workspace.focus", buildJsonObject { put("workspace_id", workspace) })
   }
 
   fun terminalId(paneId: String): String =

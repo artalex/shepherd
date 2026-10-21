@@ -4,9 +4,6 @@ import android.app.UiAutomation
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.text.InputType
-import android.view.View
-import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
@@ -86,28 +83,18 @@ class TerminalE2eTest {
     shell("input keyevent 66")
   }
 
-  /**
-   * Drives the terminal's input connection the way a soft keyboard does. `input text` cannot type
-   * Cyrillic, and the phone's keyboard sends it exactly this way.
-   */
+  /** Types into the terminal's input view the way a soft keyboard does; see [keyboard]. */
   private fun ime(scenario: ActivityScenario<MainActivity>, action: InputConnection.() -> Unit) {
-    scenario.onActivity { activity ->
-      val view = checkNotNull(activity.window.decorView.findTextEditor()) { "no terminal input view" }
-      val info = EditorInfo()
-      val connection = checkNotNull(view.onCreateInputConnection(info)) { "no input connection" }
-      // Without suggestions keyboards commit text instead of composing words: termlib drops composing
-      // text in this mode, so a change here needs its own test.
-      assertTrue("the terminal should ask for no suggestions", (info.inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0)
-      connection.action()
-    }
+    keyboard(
+      scenario,
+      check = { info ->
+        // Without suggestions keyboards commit text instead of composing words: termlib drops composing
+        // text in this mode, so a change here needs its own test.
+        assertTrue("the terminal should ask for no suggestions", (info.inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0)
+      },
+      action = action,
+    )
     idle(300)
-  }
-
-  /** The view the keyboard types into: termlib's input view, the only text editor on this screen. */
-  private fun View.findTextEditor(): View? = when {
-    this is ViewGroup -> (0 until childCount).firstNotNullOfOrNull { getChildAt(it).findTextEditor() }
-    onCheckIsTextEditor() -> this
-    else -> null
   }
 
   private fun openTerminal() {

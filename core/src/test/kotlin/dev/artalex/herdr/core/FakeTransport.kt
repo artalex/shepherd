@@ -2,6 +2,7 @@ package dev.artalex.herdr.core
 
 import dev.artalex.herdr.core.transport.ByteStream
 import dev.artalex.herdr.core.transport.HerdrTransport
+import dev.artalex.herdr.core.transport.ProcessStream
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -18,7 +19,7 @@ class FakeTransport(private val respond: (JsonObject) -> String?) : HerdrTranspo
 
   override fun openApi(): ByteStream = FakeStream()
 
-  override fun exec(argv: List<String>): ByteStream = error("exec is not faked")
+  override fun exec(argv: List<String>): ProcessStream = error("exec is not faked")
 
   private inner class FakeStream : ByteStream {
     private val sent = ByteArrayOutputStream()

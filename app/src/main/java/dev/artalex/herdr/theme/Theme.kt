@@ -15,7 +15,7 @@ private val ColorScheme =
     primaryContainer = Color(0xFF1E4D2B),
     onPrimaryContainer = Color(0xFFA6F2B6),
     inversePrimary = Color(0xFF1F6E3A),
-    // Muted green: selected chips (Ctrl and Alt in the terminal).
+    // Muted green: modifier keys that are on (Ctrl, Alt and Shift in the terminal and on the agent screen).
     secondary = Color(0xFFB7CCB9),
     onSecondary = Color(0xFF223527),
     secondaryContainer = Color(0xFF2F4A37),

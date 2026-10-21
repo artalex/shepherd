@@ -1,0 +1,2 @@
+error: session name may only contain ASCII letters, numbers, '.', '_' and '-'
+run 'herdr --help' for usage

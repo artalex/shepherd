@@ -6,10 +6,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import dev.artalex.herdr.core.host.BadSessionName
 import dev.artalex.herdr.core.host.HerdrHost
 import dev.artalex.herdr.core.host.HerdrNotFound
 import dev.artalex.herdr.core.host.HostCheck
 import dev.artalex.herdr.core.host.check
+import dev.artalex.herdr.core.host.readHostStatus
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.ssh.SshConnection
 import dev.artalex.herdr.core.ssh.SshFailure
@@ -20,6 +22,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface ConnectionState {
   /** The server's settings are incomplete, or the phone has no key yet. */
@@ -56,6 +60,9 @@ sealed interface ConnectionProblem {
   data class Unreachable(val detail: String) : ConnectionProblem
 
   data class HerdrMissing(val path: String) : ConnectionProblem
+
+  /** herdr refused the session name in the server's settings; [reason] is herdr's. */
+  data class BadSessionName(val session: String, val reason: String) : ConnectionProblem
 
   data object HerdrNotRunning : ConnectionProblem
 
@@ -96,6 +103,7 @@ class ConnectionController(
   private var connection: SshConnection? = null
   private var foreground = false
   private val holds = MutableStateFlow(0)
+  private val apiFailures = Channel<Unit>(Channel.CONFLATED)
 
   /** Runs [block] with the connection kept up in the background, as for a file transfer the user started. */
   suspend fun <T> holding(block: suspend () -> T): T {
@@ -105,6 +113,14 @@ class ConnectionController(
     } finally {
       holds.update { it - 1 }
     }
+  }
+
+  /**
+   * A request to the herdr API failed. The SSH session outlives a stopped herdr server, so the connection asks herdr
+   * whether its server still runs; if not, it reports that and retries until the server is back.
+   */
+  fun apiFailed() {
+    apiFailures.trySend(Unit)
   }
 
   /** (Re)connects with the server's current settings; cancels any attempt or retry in progress. */
@@ -240,11 +256,32 @@ class ConnectionController(
     connection = conn
     _state.value = ConnectionState.Connected(host, restartNeeded = check == HostCheck.RestartNeeded)
     Log.i(TAG, "connected to herdr ${host.status.server.version}, session ${host.session}")
-    // JSch notices a dead session through keepalives; then we start over.
-    while (conn.isConnected) delay(SESSION_CHECK_MS)
+    // We start over when JSch notices a dead session through keepalives, or when a failed API request turns out to
+    // be a herdr server that stopped.
+    while (conn.isConnected) {
+      val apiFailed = withTimeoutOrNull(SESSION_CHECK_MS) { apiFailures.receive() } != null
+      if (apiFailed && !serverRunning(host, cfg.herdrPath)) {
+        Log.i(TAG, "herdr server of ${label()} stopped")
+        return ConnectionProblem.HerdrNotRunning
+      }
+    }
     Log.i(TAG, "SSH session to ${label()} dropped")
     return ConnectionProblem.Unreachable("connection lost")
   }
+
+  /**
+   * Whether `herdr status` says the server runs. If it doesn't answer, the server counts as running: the session poll
+   * goes on and shows its own errors.
+   */
+  private suspend fun serverRunning(host: HerdrHost, herdrPath: String): Boolean =
+    try {
+      host.transport.readHostStatus(herdrPath, host.session).server.running
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.w(TAG, "herdr status of ${label()} failed: ${e.message}")
+      true
+    }
 
   private fun closeConnection() {
     connection?.close()
@@ -262,6 +299,7 @@ class ConnectionController(
       is SshFailure.AuthFailed -> ConnectionProblem.KeyRejected
       is SshFailure.Unreachable -> ConnectionProblem.Unreachable(e.cause?.message ?: e.message ?: "")
       is HerdrNotFound -> ConnectionProblem.HerdrMissing(e.path)
+      is BadSessionName -> ConnectionProblem.BadSessionName(e.session, e.reason)
       else -> ConnectionProblem.Other(e.message ?: e.javaClass.simpleName)
     }
 

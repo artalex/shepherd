@@ -13,8 +13,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** `herdr status --json` printed nothing: no herdr at [path] (the shell exits with 127). */
+/** The shell found no herdr at [path]: `herdr status` exited with 127. */
 class HerdrNotFound(val path: String) : IOException("herdr not found at $path")
+
+/** herdr refused [session] as a session name; [reason] is herdr's own, like "session name cannot be empty". */
+class BadSessionName(val session: String, val reason: String) : IOException("herdr refused session name '$session': $reason")
+
+/** `herdr status` printed no status; [detail] is what herdr or the shell said instead. */
+class HerdrStatusFailed(val detail: String) : IOException("herdr status failed: $detail")
 
 /** A herdr session the app talks to: [api] for requests, [openTerminal] for live terminal streams. */
 class HerdrHost(val status: HostStatus, val session: String, val transport: HerdrTransport) {
@@ -70,9 +76,22 @@ fun parseInstalledAgents(output: String): List<AgentKind> {
 
 /** Runs `herdr --session <session> status --json` on the host through [HerdrTransport.exec]. */
 suspend fun HerdrTransport.readHostStatus(herdrPath: String, session: String, timeoutMs: Long = 10_000): HostStatus {
-  val stream = withContext(Dispatchers.IO) { exec(listOf(herdrPath, "--session", session, "status", "--json")) }
-  val out = blockingIoWithDeadline(stream, timeoutMs, "herdr status") { stream.input.readAllBytes() }
-  val text = out.toString(Charsets.UTF_8).trim()
-  if (text.isEmpty()) throw HerdrNotFound(herdrPath)
-  return HostStatus.parse(text)
+  val process = withContext(Dispatchers.IO) { exec(listOf(herdrPath, "--session", session, "status", "--json")) }
+  val (out, exitStatus) = blockingIoWithDeadline(process, timeoutMs, "herdr status") { process.input.readAllBytes() to process.exitStatus() }
+  return hostStatusOf(herdrPath, session, out.toString(Charsets.UTF_8), process.stderr, exitStatus)
+}
+
+/**
+ * The status `herdr status --json` printed, or why there is none: the shell found no herdr at [herdrPath], herdr
+ * refused [session] as a session name, or another error herdr or the shell wrote to [stderr].
+ */
+internal fun hostStatusOf(herdrPath: String, session: String, stdout: String, stderr: String, exitStatus: Int?): HostStatus {
+  val text = stdout.trim()
+  if (text.isNotEmpty()) return HostStatus.parse(text)
+  if (exitStatus == 127) throw HerdrNotFound(herdrPath)
+  // herdr reports a command line it refuses as "error: <reason>", then a line about --help.
+  val lines = stderr.lines().map { it.trim() }.filter { it.isNotEmpty() }
+  val reason = lines.firstOrNull { it.startsWith("error: ") }?.removePrefix("error: ")
+  if (reason != null && reason.startsWith("session name")) throw BadSessionName(session, reason)
+  throw HerdrStatusFailed(reason ?: lines.joinToString(" ").ifEmpty { "nothing printed, exit status ${exitStatus ?: "unknown"}" })
 }

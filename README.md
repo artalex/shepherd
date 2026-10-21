@@ -74,6 +74,7 @@ only if the update is signed with the same key.
 ./gradlew check            # unit tests, :core integration tests against a throwaway herdr server, lint
 ./scripts/e2e.sh           # the app on an emulator connects over SSH to herdr on this machine
 ./scripts/e2e.sh --release # the same tests on the minified, signed release build
+./scripts/screenshots.sh   # screenshots of a staged demo scene, into app/build/screenshots/
 ```
 
 Integration and e2e tests need herdr 0.9.5 or newer and a dedicated SSH test key that sshd accepts from localhost
@@ -81,11 +82,13 @@ only: a line in `~/.ssh/authorized_keys` with `from="127.0.0.1,::1"` (the key's 
 default `~/.ssh/herdr_android_test`). The emulator reaches the host as 10.0.2.2, and its connections arrive from
 127.0.0.1.
 
-`scripts/e2e.sh` starts the AVD `herdr-e2e` (`HERDR_AVD`) without a window or GPU, and two throwaway herdr sessions,
-`hdr-e2e` and `hdr-e2e2`; the second one stands for a second server. It runs on an emulator only, never on a phone
+`scripts/e2e.sh` starts the AVD `herdr-e2e` (`HERDR_AVD`) without a window or GPU, and three throwaway herdr sessions:
+`hdr-e2e`, `hdr-e2e2` standing for a second server, and `hdr-e2e-stop`, whose server a test stops and starts again.
+It runs on an emulator only, never on a phone
 connected to adb, and saves screenshots to `app/build/e2e-screens/`. No real agent runs: a `claude` that echoes its
 input comes first in PATH, and herdr takes it for Claude Code. The notification and key tests lock the emulator with
 the PIN `1111` for a while; if a run dies halfway, `adb shell locksettings clear --old 1111` removes it.
+`scripts/screenshots.sh` stages its scene in `~/projects` on this machine for the run, so there must be none.
 
 Instrumented tests run in the app's process and take shared libraries from it. So for the release run R8 also keeps
 whatever the tests reference, with rules from R8 TraceReferences (task `traceReleaseTestReferences`). The APK for

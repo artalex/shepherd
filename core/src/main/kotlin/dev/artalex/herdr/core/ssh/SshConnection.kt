@@ -12,6 +12,7 @@ import com.jcraft.jsch.Session
 import com.jcraft.jsch.UserInfo
 import dev.artalex.herdr.core.files.RemoteFiles
 import dev.artalex.herdr.core.transport.ByteStream
+import dev.artalex.herdr.core.transport.ProcessStream
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
@@ -93,12 +94,22 @@ class SshConnection(private val target: SshTarget, private val key: SshKeyPair, 
     return channel.open()
   }
 
-  /** Runs [command] through the user's shell on the server, without a PTY; stderr is discarded. Blocking: not on the main thread. */
-  fun exec(command: String): ByteStream {
+  /** Runs [command] through the user's shell on the server, without a PTY. Blocking: not on the main thread. */
+  fun exec(command: String): ProcessStream {
     val channel = session().openChannel("exec") as ChannelExec
     channel.setCommand(command)
-    channel.setErrStream(ByteArrayOutputStream(), true)
-    return channel.open()
+    val errors = ByteArrayOutputStream()
+    channel.setErrStream(errors, true)
+    val stream = channel.open()
+    return object : ProcessStream, ByteStream by stream {
+      override val stderr: String get() = errors.toByteArray().toString(Charsets.UTF_8)
+
+      // The server sends the exit status before it closes the channel; closing the stream ends the wait too.
+      override fun exitStatus(): Int? {
+        while (!channel.isClosed) Thread.sleep(EXIT_POLL_MS)
+        return channel.exitStatus.takeIf { it >= 0 }
+      }
+    }
   }
 
   /** Files on the server over an SFTP channel of its own. Blocking: not on the main thread. */
@@ -197,5 +208,6 @@ class SshConnection(private val target: SshTarget, private val key: SshKeyPair, 
     const val CHANNEL_TIMEOUT_MS = 5_000
     const val KEEPALIVE_MS = 10_000
     const val KEEPALIVE_COUNT = 3
+    const val EXIT_POLL_MS = 10L
   }
 }

@@ -20,8 +20,9 @@ ADB="$SDK/platform-tools/adb"
 HERDR="${HERDR_BIN:-$HOME/.local/bin/herdr}"
 KEY="${HERDR_SSH_TEST_KEY:-$HOME/.ssh/herdr_android_test}"
 AVD="${HERDR_AVD:-herdr-e2e}"
-# The second session stands for another server in the tests with several servers.
-SESSIONS=(hdr-e2e hdr-e2e2)
+# The second session stands for another server in the tests with several servers; the third one's server is stopped
+# and started again by the test of a stopped server.
+SESSIONS=(hdr-e2e hdr-e2e2 hdr-e2e-stop)
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
 # Inside a herdr pane these would point the test server at the user's own session.
 unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_BIN_PATH
@@ -93,7 +94,7 @@ fingerprint=$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}
 A=-Pandroid.testInstrumentationRunnerArguments
 status=0
 ./gradlew "connected${build^}AndroidTest" "-Pherdr.testBuildType=$build" \
-  "$A.sshHost=10.0.2.2" "$A.sshPort=22" "$A.sshUser=${USER:-$(id -un)}" "$A.herdrSession=${SESSIONS[0]}" "$A.herdrSession2=${SESSIONS[1]}" \
+  "$A.sshHost=10.0.2.2" "$A.sshPort=22" "$A.sshUser=${USER:-$(id -un)}" "$A.herdrSession=${SESSIONS[0]}" "$A.herdrSession2=${SESSIONS[1]}" "$A.herdrSessionToStop=${SESSIONS[2]}" \
   "$A.hostKeyFingerprint=$fingerprint" "$A.sshKey=$(base64 -w0 "$KEY")" "$A.sshPub=$(base64 -w0 "$KEY.pub")" "$@" || status=$?
 
 # Screenshots taken by the tests (see Screens.kt), for a look after the run.

@@ -52,6 +52,7 @@ fun problemText(problem: ConnectionProblem): String =
     ConnectionProblem.LocalNetworkDenied -> stringResource(R.string.problem_local_network)
     is ConnectionProblem.Unreachable -> stringResource(R.string.problem_unreachable, problem.detail)
     is ConnectionProblem.HerdrMissing -> stringResource(R.string.problem_herdr_missing, problem.path)
+    is ConnectionProblem.BadSessionName -> stringResource(R.string.problem_bad_session, problem.session, problem.reason)
     ConnectionProblem.HerdrNotRunning -> stringResource(R.string.problem_herdr_not_running)
     is ConnectionProblem.HerdrTooOld -> stringResource(R.string.problem_herdr_too_old, problem.version)
     is ConnectionProblem.WrongProtocol -> stringResource(R.string.problem_wrong_protocol, problem.protocol?.toString() ?: "?")

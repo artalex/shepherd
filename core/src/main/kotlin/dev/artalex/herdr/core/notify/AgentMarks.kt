@@ -9,26 +9,35 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /**
- * An agent as the notifications last saw it: its status and herdr's count of its status changes. The count tells
- * that a status was left and came back between two looks, as with a new question after the answer to the last one.
+ * An agent as the notifications last saw it: its status, herdr's count of its status changes and the change on which
+ * it last finished work. The count tells that a status was left and came back between two looks, as with a new
+ * question after the answer to the last one. [completion] has no default: marks saved before it existed don't read,
+ * and the look after the update is a first one rather than news of every agent that finished before it.
  */
-@Serializable data class AgentMark(val status: AgentStatus, val seq: Long)
+@Serializable data class AgentMark(val status: AgentStatus, val seq: Long, val completion: Long?)
 
 /** The agents of the snapshot by pane id. */
-fun SessionSnapshot.agentMarks(): Map<String, AgentMark> = agents.associate { it.paneId to AgentMark(it.agentStatus, it.stateChangeSeq) }
+fun SessionSnapshot.agentMarks(): Map<String, AgentMark> =
+  agents.associate { it.paneId to AgentMark(it.agentStatus, it.stateChangeSeq, it.completionSeq) }
 
 /**
- * A status worth a notification: the agent asks something, or it finished and nobody has looked at it yet (herdr
- * turns `done` into `idle` once the pane is seen on the desktop).
+ * Agents with news since [before], by pane id: [AgentStatus.BLOCKED] for one that asks something, new, after another
+ * status or after leaving it and coming back; [AgentStatus.DONE] for one that finished work. A finish counts whatever
+ * the status: herdr says `done` only if nobody saw the pane, and a pane in the active tab counts as seen even with no
+ * desktop attached, so its agent finishes `idle`. A first look at a server ([before] is null) is no news.
  */
-val AgentStatus.isNotable: Boolean get() = this == AgentStatus.BLOCKED || this == AgentStatus.DONE
-
-/**
- * Agents that came to a notable status since [before], by pane id: new ones, ones that weren't in that status, and
- * ones that left it and came back. A first look at a server ([before] is null) is no news.
- */
-fun notableChanges(before: Map<String, AgentMark>?, after: Map<String, AgentMark>): Map<String, AgentStatus> =
-  if (before == null) emptyMap() else after.filter { (pane, mark) -> mark.status.isNotable && before[pane] != mark }.mapValues { it.value.status }
+fun notableChanges(before: Map<String, AgentMark>?, after: Map<String, AgentMark>): Map<String, AgentStatus> {
+  if (before == null) return emptyMap()
+  return buildMap {
+    for ((pane, mark) in after) {
+      val was = before[pane]
+      when {
+        mark.status == AgentStatus.BLOCKED && was != mark -> put(pane, AgentStatus.BLOCKED)
+        mark.completion != null && mark.completion != was?.completion -> put(pane, AgentStatus.DONE)
+      }
+    }
+  }
+}
 
 /** Marks as the phone keeps them between app runs. */
 object AgentMarks {

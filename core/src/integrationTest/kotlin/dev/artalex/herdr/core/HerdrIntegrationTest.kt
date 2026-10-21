@@ -4,6 +4,8 @@ import dev.artalex.herdr.core.host.installedAgents
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.AgentStatus
 import dev.artalex.herdr.core.model.SessionSnapshot
+import dev.artalex.herdr.core.notify.agentMarks
+import dev.artalex.herdr.core.notify.notableChanges
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.rpc.HerdrApi
 import dev.artalex.herdr.core.store.SessionPoller
@@ -159,6 +161,26 @@ class HerdrIntegrationTest {
     val board = buildBoard(snapshot)
     assertEquals("agents-blocked", board.groups.first().workspace.label)
     assertTrue(board.blockedCount >= 1)
+  }
+
+  @Test
+  fun agentsThatFinishAreNewsWhateverTheirStatus() = runBlocking {
+    // With no desktop attached herdr counts the panes of the active tab as seen: an agent there finishes idle, one in
+    // another workspace done. Both finished their work.
+    val (here, _) = catPane("finish-here")
+    val (elsewhere, _) = catPane("finish-elsewhere")
+    server.raw("workspace.focus", buildJsonObject { put("workspace_id", api.snapshot().panes.single { it.paneId == here }.workspaceId) })
+    val both = setOf(here, elsewhere)
+    reportAgent(here, "working")
+    reportAgent(elsewhere, "working")
+    val before = waitForSnapshot { s -> s.agents.count { it.paneId in both && it.agentStatus == AgentStatus.WORKING } == 2 }
+    reportAgent(here, "idle")
+    reportAgent(elsewhere, "idle")
+    val after = waitForSnapshot { s -> s.agents.count { it.paneId in both && it.completionSeq != null } == 2 }
+    assertEquals(AgentStatus.IDLE, after.agents.single { it.paneId == here }.agentStatus)
+    assertEquals(AgentStatus.DONE, after.agents.single { it.paneId == elsewhere }.agentStatus)
+    val news = notableChanges(before.agentMarks(), after.agentMarks()).filterKeys { it in both }
+    assertEquals(mapOf(here to AgentStatus.DONE, elsewhere to AgentStatus.DONE), news)
   }
 
   @Test

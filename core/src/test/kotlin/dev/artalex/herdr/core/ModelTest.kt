@@ -1,15 +1,20 @@
 package dev.artalex.herdr.core
 
+import dev.artalex.herdr.core.host.BadSessionName
+import dev.artalex.herdr.core.host.HerdrNotFound
+import dev.artalex.herdr.core.host.HerdrStatusFailed
 import dev.artalex.herdr.core.host.HostCheck
 import dev.artalex.herdr.core.host.HostStatus
 import dev.artalex.herdr.core.host.check
 import dev.artalex.herdr.core.host.compareVersions
+import dev.artalex.herdr.core.host.hostStatusOf
 import dev.artalex.herdr.core.host.shellQuote
 import dev.artalex.herdr.core.model.AgentStatus
 import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.herdrJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.jsonObject
 
@@ -56,11 +61,36 @@ class ModelTest {
   }
 
   @Test
+  fun hostStatusOfStoppedServerSaysNotRunning() {
+    // What only a running server can tell comes as null: version, protocol, compatible.
+    assertEquals(HostCheck.ServerNotRunning, HostStatus.parse(fixture("status-not-running.json")).check())
+  }
+
+  // What `herdr status --json` leaves when it prints no status, as herdr 0.9.5 and bash over SSH wrote it.
+  @Test
+  fun missingHerdrIsNotFound() {
+    val e = assertFailsWith<HerdrNotFound> { hostStatusOf("~/nowhere/herdr", "hdr-lab", "", fixture("status-not-found.stderr"), 127) }
+    assertEquals("~/nowhere/herdr", e.path)
+  }
+
+  @Test
+  fun sessionNameHerdrRefusesIsReportedWithItsReason() {
+    val e = assertFailsWith<BadSessionName> { hostStatusOf("~/.local/bin/herdr", "my session", "", fixture("status-bad-session.stderr"), 2) }
+    assertEquals("my session", e.session)
+    assertEquals("session name may only contain ASCII letters, numbers, '.', '_' and '-'", e.reason)
+  }
+
+  @Test
+  fun otherFailuresKeepWhatTheShellSaid() {
+    val e = assertFailsWith<HerdrStatusFailed> { hostStatusOf("~/.local", "hdr-lab", "", fixture("status-not-executable.stderr"), 126) }
+    assertEquals("bash: line 1: /home/user/.local: Is a directory", e.detail)
+  }
+
+  @Test
   fun hostChecksReportWhatToFix() {
     val ok = HostStatus.parse(fixture("status.json"))
     assertEquals(HostCheck.RestartNeeded, ok.copy(server = ok.server.copy(compatible = false)).check())
     assertEquals(HostCheck.TooOld("0.9.0"), ok.copy(server = ok.server.copy(version = "0.9.0")).check())
-    assertEquals(HostCheck.ServerNotRunning, ok.copy(server = ok.server.copy(running = false)).check())
   }
 
   @Test

@@ -17,7 +17,8 @@ import kotlinx.coroutines.flow.stateIn
 /**
  * The herdr session as the screens see it: snapshots of the connected host, polled only while some
  * screen (or the agent watch) collects [state]. A reconnect (new [HerdrHost]) starts a fresh poller.
- * Every snapshot also goes to [onSnapshot]: the notifications keep track of the agents with it.
+ * Every snapshot also goes to [onSnapshot]: the notifications keep track of the agents with it. A failed poll goes to
+ * the connection, which checks whether the herdr server has stopped.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionRepository(connection: ConnectionController, scope: CoroutineScope, onSnapshot: (SessionState.Ready) -> Unit) {
@@ -31,7 +32,10 @@ class SessionRepository(connection: ConnectionController, scope: CoroutineScope,
         if (host == null) flowOf(SessionState.Loading)
         else SessionPoller(host.api, scope).also { poller = it }.state
       }
-      .onEach { if (it is SessionState.Ready) onSnapshot(it) }
+      .onEach {
+        if (it is SessionState.Ready) onSnapshot(it)
+        if (it is SessionState.Failed) connection.apiFailed()
+      }
       .stateIn(scope, SharingStarted.WhileSubscribed(), SessionState.Loading)
 
   /** Polls right away, e.g. after the user answered an agent. */

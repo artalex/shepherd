@@ -33,6 +33,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
@@ -210,6 +211,35 @@ class NotificationsE2eTest {
       backToApp()
       fixture.reportAgent(agent, "working")
       waitFor("stale notification taken down") { alert() == null }
+    }
+  }
+
+  @Test
+  fun finishIsDoneWhateverHerdrCallsIt() {
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { container.notifications.setWatchMinutes(5) }
+    launchApp(compose, "finishIsDoneWhateverHerdrCallsIt") {
+      waitForAgentOnList()
+      goHome(container)
+      waitFor("watch on") { container.watch.until.value != null }
+
+      // In a workspace of its own the agent finishes done; seen on the desktop it is idle, and the notification goes.
+      finish()
+      waitForAlert(Alerts.DONE_CHANNEL)
+      fixture.focusWorkspaceOf(agent)
+      waitFor("herdr counts the agent as seen") { hostStatus() == "idle" }
+      waitFor("notification taken down") { alert() == null }
+
+      // In the active tab herdr counts the pane as seen even with no desktop attached: the agent finishes idle, a
+      // finish all the same. The notification stays while the agent is idle and goes when it works again.
+      fixture.reportAgent(agent, "working")
+      finish()
+      val done = waitForAlert(Alerts.DONE_CHANNEL)
+      assertEquals("idle", hostStatus())
+      assertEquals("${text(R.string.alerts_done)} · e2e-notify-$run", done.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+      Thread.sleep(2_500) // a poll more
+      assertNotNull(alert())
+      fixture.reportAgent(agent, "working")
+      waitFor("notification taken down") { alert() == null }
     }
   }
 

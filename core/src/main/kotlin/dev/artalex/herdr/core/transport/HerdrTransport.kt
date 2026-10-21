@@ -14,6 +14,15 @@ interface ByteStream : Closeable {
   fun closeOutput() = output.close()
 }
 
+/** A command started by [HerdrTransport.exec]: its stdin and stdout, and what it wrote to stderr. */
+interface ProcessStream : ByteStream {
+  /** What the command has written to stderr so far. */
+  val stderr: String
+
+  /** Waits for the command to end; its exit status, or null if the host didn't report one. Blocking. */
+  fun exitStatus(): Int?
+}
+
 /**
  * How the client reaches a herdr host.
  *
@@ -24,7 +33,7 @@ interface HerdrTransport {
   fun openApi(): ByteStream
 
   /** Starts [argv] on the herdr host and connects to its stdin/stdout. */
-  fun exec(argv: List<String>): ByteStream
+  fun exec(argv: List<String>): ProcessStream
 
   /** Files on the herdr host; test transports without them throw. */
   fun openFiles(): RemoteFiles = throw UnsupportedOperationException("this transport has no file access")

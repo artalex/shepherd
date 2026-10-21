@@ -6,6 +6,7 @@ import dev.artalex.herdr.core.host.readHostStatus
 import dev.artalex.herdr.core.host.remoteCommand
 import dev.artalex.herdr.core.transport.ByteStream
 import dev.artalex.herdr.core.transport.HerdrTransport
+import dev.artalex.herdr.core.transport.ProcessStream
 
 /**
  * herdr over SSH: API requests through a streamlocal channel to [socketPath], CLI streams through exec, files over
@@ -14,7 +15,7 @@ import dev.artalex.herdr.core.transport.HerdrTransport
 class SshHerdrTransport(private val connection: SshConnection, private val socketPath: String?) : HerdrTransport {
   override fun openApi(): ByteStream = connection.openStreamLocal(checkNotNull(socketPath) { "herdr API socket is not known yet" })
 
-  override fun exec(argv: List<String>): ByteStream = connection.exec(remoteCommand(argv))
+  override fun exec(argv: List<String>): ProcessStream = connection.exec(remoteCommand(argv))
 
   override fun openFiles(): RemoteFiles = connection.openFiles()
 }

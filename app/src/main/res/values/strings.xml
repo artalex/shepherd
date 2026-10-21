@@ -69,6 +69,7 @@
     <string name="problem_local_network">No permission to reach devices on the local network.</string>
     <string name="problem_unreachable">Server unreachable: %1$s</string>
     <string name="problem_herdr_missing">herdr not found at %1$s.</string>
+    <string name="problem_bad_session">herdr refuses session name “%1$s”: %2$s</string>
     <string name="problem_herdr_not_running">The herdr server isn\'t running for this session.</string>
     <string name="problem_herdr_too_old">herdr %1$s is too old: 0.9.5 or newer is needed.</string>
     <string name="problem_wrong_protocol">Unknown herdr protocol version: %1$s.</string>

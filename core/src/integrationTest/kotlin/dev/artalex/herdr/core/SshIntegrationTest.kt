@@ -1,7 +1,9 @@
 package dev.artalex.herdr.core
 
 import dev.artalex.herdr.core.host.HostCheck
+import dev.artalex.herdr.core.host.BadSessionName
 import dev.artalex.herdr.core.host.HerdrNotFound
+import dev.artalex.herdr.core.host.HerdrStatusFailed
 import dev.artalex.herdr.core.host.check
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.ssh.SshConnection
@@ -177,6 +179,34 @@ class SshIntegrationTest {
     connected().use { connection ->
       val e = assertFailsWith<HerdrNotFound> { discoverHerdrHost(connection, "~/nowhere/herdr", server.session) }
       assertEquals("~/nowhere/herdr", e.path)
+    }
+  }
+
+  @Test
+  fun badSessionNameIsReported() = runBlocking {
+    connected().use { connection ->
+      val e = assertFailsWith<BadSessionName> { discoverHerdrHost(connection, "~/.local/bin/herdr", "my session") }
+      assertEquals("my session", e.session)
+      assertEquals("session name may only contain ASCII letters, numbers, '.', '_' and '-'", e.reason)
+    }
+  }
+
+  @Test
+  fun herdrPathThatIsNoProgramIsReported() = runBlocking {
+    connected().use { connection ->
+      val e = assertFailsWith<HerdrStatusFailed> { discoverHerdrHost(connection, server.dir.toString(), server.session) }
+      assertTrue(e.detail.endsWith("${server.dir}: Is a directory"), e.detail)
+    }
+  }
+
+  @Test
+  fun stoppedServerIsReportedNotRunning() = runBlocking {
+    // A session of its own: the shared one stays up for the other tests.
+    HerdrTestServer(isolatedConfig = false).use { stopped ->
+      stopped.stop()
+      connected().use { connection ->
+        assertEquals(HostCheck.ServerNotRunning, discoverHerdrHost(connection, "~/.local/bin/herdr", stopped.session).status.check())
+      }
     }
   }
 
