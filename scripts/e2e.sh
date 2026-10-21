@@ -24,8 +24,10 @@ AVD="${HERDR_AVD:-herdr-e2e}"
 # and started again by the test of a stopped server.
 SESSIONS=(hdr-e2e hdr-e2e2 hdr-e2e-stop)
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
-# Inside a herdr pane these would point the test server at the user's own session.
-unset HERDR_ENV HERDR_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_BIN_PATH
+# Inside a herdr pane its variables would reach the test servers: some point at the user's own session, and
+# HERDR_STARTUP_CWD has a server open a workspace there as it starts. Every one goes, as for the core's test server;
+# the settings above are read already.
+unset $(compgen -v HERDR_)
 
 started_emulator=0
 emulator_pid=

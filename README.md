@@ -4,6 +4,15 @@ An Android client for [herdr](https://github.com/herdrdev/herdr), the terminal w
 It connects to the herdr machine over SSH and talks to herdr's API through a forwarded Unix socket: nothing to install
 on the host, no cloud, no backend. On a phone set to Russian the app speaks Russian and is called «Пастух».
 
+<p>
+  <img src="docs/screenshots/01-agents.png" width="200" alt="The agent list">
+  <img src="docs/screenshots/02-agent.png" width="200" alt="An agent that needs input">
+  <img src="docs/screenshots/05-files-incoming.png" width="200" alt="Files the agent mentions">
+  <img src="docs/screenshots/08-notification.png" width="200" alt="A notification">
+</p>
+
+All the screenshots are in [docs/screenshots](docs/screenshots).
+
 ## Features
 
 - All agents of all your servers in one list, with their status: needs input, working, done, idle.
@@ -75,7 +84,7 @@ only if the update is signed with the same key.
 ./gradlew check            # unit tests, :core integration tests against a throwaway herdr server, lint
 ./scripts/e2e.sh           # the app on an emulator connects over SSH to herdr on this machine
 ./scripts/e2e.sh --release # the same tests on the minified, signed release build
-./scripts/screenshots.sh   # screenshots of a staged demo scene, into app/build/screenshots/
+./scripts/screenshots.sh   # screenshots of a staged demo scene, into docs/screenshots/
 ```
 
 Integration and e2e tests need herdr 0.9.5 or newer and a dedicated SSH test key that sshd accepts from localhost
