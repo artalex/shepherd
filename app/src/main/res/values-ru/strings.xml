@@ -102,6 +102,15 @@
     <string name="agent_back">Назад</string>
     <string name="agent_prompt_hint">Промпт агенту</string>
     <string name="agent_send">Отправить</string>
+    <string name="snippets_open">Сниппеты</string>
+    <string name="snippets_none">Сниппетов пока нет</string>
+    <string name="snippets_save">Сохранить текст из поля</string>
+    <string name="snippets_saved">Сохранено в сниппеты: %1$s</string>
+    <string name="snippets_edit">Изменить список…</string>
+    <string name="snippets_title">Сниппеты</string>
+    <string name="snippets_add">Добавить</string>
+    <string name="snippets_delete">Удалить сниппет</string>
+    <string name="snippets_done">Сохранить</string>
     <string name="agent_no_screen">Жду экран панели…</string>
     <string name="error_agent_blocked">Агент ждёт ответа в диалоге — ответьте кнопками.</string>
     <string name="error_agent_not_ready">Агент уже не запущен в этой панели.</string>

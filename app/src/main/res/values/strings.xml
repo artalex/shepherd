@@ -102,6 +102,15 @@
     <string name="agent_back">Back</string>
     <string name="agent_prompt_hint">Prompt for the agent</string>
     <string name="agent_send">Send</string>
+    <string name="snippets_open">Snippets</string>
+    <string name="snippets_none">No snippets yet</string>
+    <string name="snippets_save">Save the prompt\'s text</string>
+    <string name="snippets_saved">Saved to snippets: %1$s</string>
+    <string name="snippets_edit">Edit the list…</string>
+    <string name="snippets_title">Snippets</string>
+    <string name="snippets_add">Add</string>
+    <string name="snippets_delete">Delete snippet</string>
+    <string name="snippets_done">Save</string>
     <string name="agent_no_screen">Waiting for the pane\'s screen…</string>
     <string name="error_agent_blocked">The agent is waiting for an answer in a dialog: answer with the buttons.</string>
     <string name="error_agent_not_ready">The agent no longer runs in this pane.</string>

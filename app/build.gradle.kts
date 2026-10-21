@@ -24,10 +24,10 @@ android {
     compileSdk = 37
     defaultConfig {
         applicationId = "dev.artalex.herdr"
-        minSdk = 29
+        minSdk = 33
         targetSdk = 37
-        versionCode = 17
-        versionName = "2.6"
+        versionCode = 20
+        versionName = "2.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -15,12 +15,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -41,7 +46,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,12 +83,15 @@ import dev.artalex.herdr.ui.common.StatusChip
 import dev.artalex.herdr.ui.files.FilesSheet
 import kotlinx.coroutines.launch
 
-/** Label on the button and the herdr logical key it sends; Shift and Ctrl come right after the arrows. */
+/**
+ * Label on the button and the herdr logical key it sends; Shift and Ctrl come right after the arrows. Tab is next to
+ * Enter: Tab and then Enter takes the prompt Claude Code suggests.
+ */
 private val QUICK_KEYS =
-  listOf("1" to "1", "2" to "2", "3" to "3", "Enter" to "enter", "Esc" to "esc", "↑" to "up", "↓" to "down", "←" to "left", "→" to "right")
+  listOf("1" to "1", "2" to "2", "3" to "3", "Enter" to "enter", "Tab" to "tab", "Esc" to "esc", "↑" to "up", "↓" to "down", "←" to "left", "→" to "right")
 
 /** The keys after Shift and Ctrl. */
-private val MORE_KEYS = listOf("Tab" to "tab", "Ctrl+C" to "ctrl+c")
+private val MORE_KEYS = listOf("Ctrl+C" to "ctrl+c")
 
 /**
  * Keys the sticky Shift goes with: Shift+Tab switches Claude Code's modes, and Shift with an arrow moves between the
@@ -109,6 +120,7 @@ fun AgentScreen(
   val serverTitle by viewModel.serverTitle.collectAsStateWithLifecycle()
   val closed by viewModel.paneClosed.collectAsStateWithLifecycle()
   val agents by viewModel.agents.collectAsStateWithLifecycle()
+  val snippets by viewModel.snippets.collectAsStateWithLifecycle()
   val snackbar = remember { SnackbarHostState() }
   val resources = LocalResources.current
   LaunchedEffect(viewModel) {
@@ -119,6 +131,7 @@ fun AgentScreen(
   val pane = view?.pane
   var confirmClose by remember { mutableStateOf(false) }
   var filesOpen by remember { mutableStateOf(false) }
+  var editSnippets by remember { mutableStateOf(false) }
   var prompt by remember { mutableStateOf(TextFieldValue()) }
   val promptFocus = remember { FocusRequester() }
   var focusPrompt by remember { mutableStateOf(false) }
@@ -194,6 +207,11 @@ fun AgentScreen(
       // Shift and Ctrl hold for the next key, as in the terminal.
       var shift by remember { mutableStateOf(false) }
       var ctrl by remember { mutableStateOf(false) }
+      // The prompt's text with a letter that went to the agent with Ctrl in it. The text field keeps that text until it
+      // recomposes, and a keyboard's calls before then, such as finishComposingText, bring it back: it is the same edit
+      // again. The recomposition that resets the field ends that.
+      val sentWithCtrl = remember { arrayOfNulls<String>(1) }
+      SideEffect { sentWithCtrl[0] = null }
       fun send(key: String) {
         val mods = listOfNotNull("ctrl".takeIf { ctrl && key in CTRL_KEYS }, "shift".takeIf { shift && key in SHIFT_KEYS })
         viewModel.sendKeys(listOf((mods + key).joinToString("+")))
@@ -215,14 +233,21 @@ fun AgentScreen(
           value = prompt,
           onValueChange = { next ->
             val typed = if (ctrl) typedChar(prompt, next) else null
-            if (typed == null) {
-              prompt = next
-            } else {
-              // Ctrl goes with the next character typed: a Latin letter goes to the agent as Ctrl and that letter,
-              // anything else into the prompt as usual.
-              ctrl = false
-              val letter = typed.lowercaseChar()
-              if (letter in 'a'..'z') viewModel.sendKeys(listOf("ctrl+$letter")) else prompt = next
+            when {
+              next.text == sentWithCtrl[0] -> Unit
+              typed == null -> prompt = next
+              else -> {
+                // Ctrl goes with the next character typed: a Latin letter goes to the agent as Ctrl and that letter,
+                // anything else into the prompt as usual.
+                ctrl = false
+                val letter = typed.lowercaseChar()
+                if (letter in 'a'..'z') {
+                  viewModel.sendKeys(listOf("ctrl+$letter"))
+                  sentWithCtrl[0] = next.text
+                } else {
+                  prompt = next
+                }
+              }
             }
           },
           // While Ctrl is on, the keyboard is asked for no suggestions: it sends a letter as it is typed, not as a word
@@ -230,6 +255,18 @@ fun AgentScreen(
           keyboard = if (ctrl) KeyboardOptions(keyboardType = KeyboardType.PasswordVisible, autoCorrectEnabled = false) else KeyboardOptions.Default,
           focus = promptFocus,
           starting = view?.starting == true,
+          snippets = {
+            SnippetsMenu(
+              snippets,
+              canSave = prompt.text.isNotBlank() && prompt.text.trim() !in snippets,
+              onInsert = {
+                prompt = prompt.withSnippet(it)
+                focusPrompt = true
+              },
+              onSave = { viewModel.saveSnippet(prompt.text) },
+              onEdit = { editSnippets = true },
+            )
+          },
           onSend = {
             viewModel.sendPrompt(it)
             prompt = TextFieldValue()
@@ -254,6 +291,17 @@ fun AgentScreen(
         }
       },
       onDismiss = { filesOpen = false },
+    )
+  }
+
+  if (editSnippets) {
+    SnippetsDialog(
+      snippets,
+      onSave = {
+        viewModel.setSnippets(it)
+        editSnippets = false
+      },
+      onDismiss = { editSnippets = false },
     )
   }
 
@@ -434,7 +482,10 @@ private fun CloseDialog(pane: PaneInfo, board: Board?, onConfirm: () -> Unit, on
   )
 }
 
-/** While a just-started agent isn't ready, text can be typed but not sent: herdr would refuse it. */
+/**
+ * The prompt, with [snippets] before it. While a just-started agent isn't ready, text can be typed but not sent: herdr
+ * would refuse it.
+ */
 @Composable
 private fun PromptRow(
   value: TextFieldValue,
@@ -442,9 +493,11 @@ private fun PromptRow(
   keyboard: KeyboardOptions,
   focus: FocusRequester,
   starting: Boolean,
+  snippets: @Composable () -> Unit,
   onSend: (String) -> Unit,
 ) {
   Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    snippets()
     OutlinedTextField(
       value = value,
       onValueChange = onValueChange,
@@ -459,6 +512,96 @@ private fun PromptRow(
   }
 }
 
+/**
+ * The snippets button by the prompt. A snippet goes into the prompt at the cursor, to be sent as it is or with more
+ * to it; the prompt's text can become a snippet, and the list is edited in [SnippetsDialog].
+ */
+@Composable
+private fun SnippetsMenu(snippets: List<String>, canSave: Boolean, onInsert: (String) -> Unit, onSave: () -> Unit, onEdit: () -> Unit) {
+  var open by remember { mutableStateOf(false) }
+  Box {
+    IconButton(onClick = { open = true }, modifier = Modifier.testTag("snippets")) {
+      Icon(painterResource(R.drawable.ic_snippets), contentDescription = stringResource(R.string.snippets_open))
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.testTag("snippetsMenu")) {
+      if (snippets.isEmpty()) DropdownMenuItem(text = { Text(stringResource(R.string.snippets_none)) }, onClick = {}, enabled = false)
+      snippets.forEachIndexed { i, snippet ->
+        DropdownMenuItem(
+          text = { Text(snippet, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+          onClick = {
+            open = false
+            onInsert(snippet)
+          },
+          modifier = Modifier.testTag("snippet-$i"),
+        )
+      }
+      HorizontalDivider()
+      DropdownMenuItem(
+        text = { Text(stringResource(R.string.snippets_save)) },
+        leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+        onClick = {
+          open = false
+          onSave()
+        },
+        enabled = canSave,
+        modifier = Modifier.testTag("saveSnippet"),
+      )
+      DropdownMenuItem(
+        text = { Text(stringResource(R.string.snippets_edit)) },
+        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+        onClick = {
+          open = false
+          onEdit()
+        },
+        modifier = Modifier.testTag("editSnippets"),
+      )
+    }
+  }
+}
+
+/** The snippets to change, delete or add to; blank ones and repeats go when the list is saved. */
+@Composable
+private fun SnippetsDialog(snippets: List<String>, onSave: (List<String>) -> Unit, onDismiss: () -> Unit) {
+  // Rows carry ids of their own: a deleted row takes its field along, not the one of the row after it.
+  var rows by remember { mutableStateOf(snippets.ifEmpty { listOf("") }.withIndex().map { it.index to it.value }) }
+  var nextId by remember { mutableIntStateOf(rows.size) }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(stringResource(R.string.snippets_title)) },
+    text = {
+      Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        rows.forEachIndexed { i, (id, text) ->
+          key(id) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              OutlinedTextField(
+                value = text,
+                onValueChange = { changed -> rows = rows.map { if (it.first == id) id to changed else it } },
+                maxLines = 4,
+                modifier = Modifier.weight(1f).testTag("snippetField-$i"),
+              )
+              IconButton(onClick = { rows = rows.filter { it.first != id } }, modifier = Modifier.testTag("deleteSnippet-$i")) {
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.snippets_delete))
+              }
+            }
+          }
+        }
+        TextButton(
+          onClick = {
+            rows = rows + (nextId to "")
+            nextId++
+          },
+          modifier = Modifier.testTag("addSnippet"),
+        ) {
+          Icon(Icons.Filled.Add, contentDescription = null)
+          Text(stringResource(R.string.snippets_add), Modifier.padding(start = 8.dp))
+        }
+      }
+    },
+    confirmButton = { TextButton(onClick = { onSave(rows.map { it.second }) }, modifier = Modifier.testTag("saveSnippets")) { Text(stringResource(R.string.snippets_done)) } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+  )
+}
+
 /** The one character typed at the cursor that turns [before] into [after], or null for any other edit. */
 private fun typedChar(before: TextFieldValue, after: TextFieldValue): Char? {
   val at = before.selection.min
@@ -471,10 +614,17 @@ private fun typedChar(before: TextFieldValue, after: TextFieldValue): Char? {
 }
 
 /** [path] put in at the cursor, with spaces from the words around it; in quotes if it has spaces of its own. */
-private fun TextFieldValue.withPath(path: String): TextFieldValue {
-  val word = if (path.any { it.isWhitespace() }) "\"$path\"" else path
+private fun TextFieldValue.withPath(path: String): TextFieldValue = withWord(if (path.any { it.isWhitespace() }) "\"$path\"" else path, spaceAtEnd = true)
+
+/** [snippet] put in at the cursor, with spaces from the words around it; at the end of the text nothing follows it. */
+private fun TextFieldValue.withSnippet(snippet: String): TextFieldValue = withWord(snippet, spaceAtEnd = false)
+
+/** [word] in place of the selection, apart from the words around it; [spaceAtEnd]: a space after it at the end too. */
+private fun TextFieldValue.withWord(word: String, spaceAtEnd: Boolean): TextFieldValue {
   val before = text.substring(0, selection.min)
   val after = text.substring(selection.max)
-  val inserted = (if (before.isEmpty() || before.last().isWhitespace()) "" else " ") + word + (if (after.firstOrNull()?.isWhitespace() == true) "" else " ")
+  val spaceBefore = before.isNotEmpty() && !before.last().isWhitespace()
+  val spaceAfter = if (after.isEmpty()) spaceAtEnd else !after.first().isWhitespace()
+  val inserted = (if (spaceBefore) " " else "") + word + (if (spaceAfter) " " else "")
   return TextFieldValue(before + inserted + after, TextRange(before.length + inserted.length))
 }

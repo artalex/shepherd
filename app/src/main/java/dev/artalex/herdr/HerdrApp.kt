@@ -8,6 +8,7 @@ import dev.artalex.herdr.core.ssh.SshLog
 import dev.artalex.herdr.data.KeyVault
 import dev.artalex.herdr.data.NotificationSettings
 import dev.artalex.herdr.data.ServerStore
+import dev.artalex.herdr.data.SnippetStore
 import dev.artalex.herdr.notify.AgentWatch
 import dev.artalex.herdr.notify.Alerts
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +45,7 @@ class AppContainer(app: Application) {
   val transfers = MutableStateFlow(0)
 
   val notifications = NotificationSettings(app)
+  val snippets = SnippetStore(app)
   val alerts = Alerts(app)
 
   // The watch gets every snapshot; it is made right after, and no snapshot comes before the app runs.

@@ -9,7 +9,6 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
-import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
@@ -23,7 +22,6 @@ import org.junit.Test
  * the phone's here, as Android's per-app language setting does.
  */
 @OptIn(ExperimentalTestApi::class)
-@SdkSuppress(minSdkVersion = 33)
 class LocaleE2eTest {
   @get:Rule val localNetwork: GrantPermissionRule = GrantPermissionRule.grant("android.permission.ACCESS_LOCAL_NETWORK")
   @get:Rule val compose = createEmptyComposeRule()

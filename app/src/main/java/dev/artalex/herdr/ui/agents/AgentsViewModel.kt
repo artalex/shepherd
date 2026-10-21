@@ -1,6 +1,5 @@
 package dev.artalex.herdr.ui.agents
 
-import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.artalex.herdr.Server
@@ -61,7 +60,7 @@ class AgentsViewModel(private val servers: Servers, private val notifications: N
   fun setActive(id: String, active: Boolean) = servers.setActive(id, active)
 
   /** Notifications are on, but Android wants a permission for them that the list hasn't asked for yet. */
-  fun shouldAskForNotifications(): Boolean = Build.VERSION.SDK_INT >= 33 && notifications.enabled.value && !notifications.asked && !alerts.allowed()
+  fun shouldAskForNotifications(): Boolean = notifications.enabled.value && !notifications.asked && !alerts.allowed()
 
   /** The list asks once; after that the permission is the settings' business. */
   fun askedForNotifications() {

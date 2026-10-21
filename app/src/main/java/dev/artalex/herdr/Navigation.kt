@@ -82,7 +82,7 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit) {
             // The user is looking at the agent: a notification about it has done its job.
             LaunchedEffect(key) { container.alerts.dismiss(key.serverId, key.paneId) }
             AgentScreen(
-              viewModel(key = "agent-${key.serverId}/${key.paneId}") { AgentViewModel(servers, server, key.paneId) },
+              viewModel(key = "agent-${key.serverId}/${key.paneId}") { AgentViewModel(servers, server, key.paneId, container.snippets) },
               onBack = back,
               onOpenTerminal = { backStack.add(Terminal(key.serverId, key.paneId)) },
               onSwitchPane = showPane,

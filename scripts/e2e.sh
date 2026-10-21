@@ -61,7 +61,12 @@ if [ -z "${ANDROID_SERIAL:-}" ]; then
   fi
 fi
 export ANDROID_SERIAL
-until [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 2; done
+# A booting emulator can stall with adb still listing it and adb shell hanging: give up instead of waiting for ever.
+boot_deadline=$((SECONDS + 300))
+until [ "$(timeout 10 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do
+  [ "$SECONDS" -lt "$boot_deadline" ] || { echo "$ANDROID_SERIAL did not finish booting in 5 minutes" >&2; exit 1; }
+  sleep 2
+done
 # The tests need the screen on and unlocked: it times out during a long build, and the notification tests lock it.
 "$ADB" shell svc power stayon true
 "$ADB" shell input keyevent KEYCODE_WAKEUP

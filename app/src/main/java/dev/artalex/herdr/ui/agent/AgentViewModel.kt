@@ -16,6 +16,7 @@ import dev.artalex.herdr.core.store.buildBoard
 import dev.artalex.herdr.core.store.paneGrid
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
+import dev.artalex.herdr.data.SnippetStore
 import dev.artalex.herdr.ui.terminal.TerminalPhase
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,7 +54,7 @@ data class ServerBoard(val serverId: String, val title: String, val board: Board
 
 /** The screen of pane [paneId] on [server]. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AgentViewModel(servers: Servers, val server: Server, val paneId: String) : ViewModel() {
+class AgentViewModel(servers: Servers, val server: Server, val paneId: String, private val snippetStore: SnippetStore) : ViewModel() {
   /** The pane at the phone's size, shared with its terminal screen. */
   val stream = server.streams.of(paneId)
 
@@ -162,6 +163,17 @@ class AgentViewModel(servers: Servers, val server: Server, val paneId: String) :
       stream.scrollToBottom()
       server.host?.api?.promptAgent(paneId, text)
     }
+
+  /** The prompt snippets, the same on every agent screen. */
+  val snippets: StateFlow<List<String>> = snippetStore.snippets
+
+  /** Saves [text] at the end of the snippets and says so: the menu it came from is gone by then. */
+  fun saveSnippet(text: String) {
+    snippetStore.add(text)
+    _messages.trySend(UiMessage(R.string.snippets_saved, text.trim()))
+  }
+
+  fun setSnippets(snippets: List<String>) = snippetStore.set(snippets)
 
   /** Looks up the installed agents once; the host caches the answer for the connection. */
   fun loadAgents() {

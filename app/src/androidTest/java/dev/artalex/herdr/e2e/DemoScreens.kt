@@ -21,7 +21,6 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
-import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
@@ -54,7 +53,6 @@ import org.junit.Test
  * Only scripts/screenshots.sh runs it (it sets `demoScreens`); the e2e run skips it.
  */
 @OptIn(ExperimentalTestApi::class)
-@SdkSuppress(minSdkVersion = 33)
 class DemoScreens {
   @get:Rule
   val permissions: GrantPermissionRule = GrantPermissionRule.grant("android.permission.ACCESS_LOCAL_NETWORK", "android.permission.POST_NOTIFICATIONS")

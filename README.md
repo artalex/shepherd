@@ -7,7 +7,8 @@ on the host, no cloud, no backend. On a phone set to Russian the app speaks Russ
 ## Features
 
 - All agents of all your servers in one list, with their status: needs input, working, done, idle.
-- Answer an agent with one tap (1/2/3, Enter, Esc, arrows, Tab, Shift, Ctrl+C) or send it a prompt.
+- Answer an agent with one tap (1/2/3, Enter, Tab, Esc, arrows, Shift, Ctrl, Ctrl+C) or send it a prompt.
+- Snippets for the prompt: text you send often, such as `/effort max`, saved once and put in from a menu.
 - Notifications when an agent needs input or finishes, with the phone locked too.
 - A full terminal for any pane.
 - Files: download a file the agent mentions on screen, such as a screenshot or an APK, and open it; send files from
@@ -18,7 +19,7 @@ on the host, no cloud, no backend. On a phone set to Russian the app speaks Russ
 ## Requirements
 
 - herdr 0.9.5 or newer on the machine, and SSH access to it.
-- Android 10 or newer. The phone has to reach the machine: home network or VPN.
+- Android 13 or newer. The phone has to reach the machine: home network or VPN.
 
 ## Setup
 

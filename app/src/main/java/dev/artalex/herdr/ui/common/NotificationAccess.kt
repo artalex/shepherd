@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,8 +14,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 /**
- * Asks for the notification permission where Android wants that (13 and later), then tells whether notifications can
- * show. Once the user refused for good, Android doesn't ask any more and the answer comes at once.
+ * Asks for the notification permission if the app doesn't have it, then tells whether notifications can show. Once
+ * the user refused for good, Android doesn't ask any more and the answer comes at once.
  */
 @Composable
 fun rememberNotificationAccess(): ((allowed: Boolean) -> Unit) -> Unit {
@@ -28,9 +27,7 @@ fun rememberNotificationAccess(): ((allowed: Boolean) -> Unit) -> Unit {
       pending[0] = null
     }
   return { then ->
-    val needed =
-      Build.VERSION.SDK_INT >= 33 &&
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    val needed = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
     if (needed) {
       pending[0] = then
       launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
