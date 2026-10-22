@@ -3,6 +3,7 @@ package dev.artalex.herdr.e2e
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
@@ -22,6 +23,7 @@ import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
 import dev.artalex.herdr.connection.ConnectionProblem
 import dev.artalex.herdr.connection.ConnectionState
+import dev.artalex.herdr.core.DEFAULT_SESSION
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -30,8 +32,9 @@ import org.junit.Test
 
 /**
  * The real path, as on a new phone: the server form on the first start, then the agent list, where the app connects
- * over SSH to the host machine (10.0.2.2), asks to accept the host key and shows the server's workspaces. A session
- * name herdr refuses is reported there with herdr's reason.
+ * over SSH to the host machine (10.0.2.2), asks to accept the host key and shows the server's workspaces. The form
+ * doesn't save a session name herdr would refuse; one saved before it checked names is reported on the list with
+ * herdr's reason.
  */
 @OptIn(ExperimentalTestApi::class)
 class ConnectE2eTest {
@@ -100,18 +103,34 @@ class ConnectE2eTest {
   }
 
   @Test
-  fun sessionNameHerdrRefusesIsReportedOnTheList() {
-    launchApp(compose, "sessionNameHerdrRefusesIsReportedOnTheList") {
+  fun sessionNameHerdrWouldRefuseIsCaughtInTheForm() {
+    launchApp(compose, "sessionNameHerdrWouldRefuseIsCaughtInTheForm") {
+      // The line under the field says what herdr would refuse as the name is typed, and the server can't be saved.
       fillServerForm("my session")
+      compose.onNodeWithText(text(R.string.server_session_characters)).assertExists()
       Espresso.closeSoftKeyboard()
-      compose.onNodeWithTag("save").performScrollTo().assertIsEnabled().performClick()
-      compose.waitUntilExactlyOneExists(hasTestTag("trustHostKey"), 20_000)
-      compose.onNodeWithTag("trustHostKey").performClick()
+      compose.onNodeWithTag("save").performScrollTo().assertIsNotEnabled()
+      Screens.take(compose, "00b-session-name")
+      compose.onNodeWithTag("session").performTextReplacement("")
+      compose.onNodeWithText(text(R.string.server_session_empty, DEFAULT_SESSION)).assertExists()
+      compose.onNodeWithTag("save").assertIsNotEnabled()
 
+      // A name herdr takes: the line goes, and the server can be saved.
+      compose.onNodeWithTag("session").performTextReplacement(e2e.session)
+      compose.onNodeWithText(text(R.string.server_session_empty, DEFAULT_SESSION)).assertDoesNotExist()
+      compose.onNodeWithTag("save").assertIsEnabled()
+    }
+  }
+
+  @Test
+  fun sessionNameHerdrRefusesIsReportedOnTheList() {
+    // A server saved before the form checked names keeps the name.
+    fixture.addServer(container, HostFixture.SERVER_ID, session = "my session")
+    launchApp(compose, "sessionNameHerdrRefusesIsReportedOnTheList") {
       // herdr's reason instead of "herdr not found", and no retries: only the settings can fix the name.
       val reason = "session name may only contain ASCII letters, numbers, '.', '_' and '-'"
       compose.waitUntilExactlyOneExists(hasText(text(R.string.problem_bad_session, "my session", reason)), 30_000)
-      val server = container.servers.configs.value.single().let { container.servers[it.id] }
+      val server = container.servers[HostFixture.SERVER_ID]
       assertEquals(ConnectionState.Failed(ConnectionProblem.BadSessionName("my session", reason), retryInMs = null), server?.connection?.state?.value)
       Screens.take(compose, "02b-bad-session")
     }

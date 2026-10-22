@@ -15,6 +15,10 @@
     <string name="server_user">Пользователь</string>
     <string name="server_herdr_path">Путь к herdr</string>
     <string name="server_session">Сессия herdr</string>
+    <string name="server_session_empty">Укажите имя: основная сессия herdr называется «%1$s»</string>
+    <string name="server_session_characters">Только латинские буквы, цифры, «.», «_» и «-»</string>
+    <string name="server_session_too_long">Не длиннее 64 символов</string>
+    <string name="server_session_dots">Не может быть «.» или «..»</string>
     <string name="server_save">Сохранить</string>
     <string name="server_delete">Удалить сервер</string>
     <string name="server_delete_title">Удалить сервер?</string>

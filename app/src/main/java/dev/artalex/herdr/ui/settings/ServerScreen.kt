@@ -42,6 +42,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
+import dev.artalex.herdr.core.DEFAULT_SESSION
+import dev.artalex.herdr.core.SessionNameProblem
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.servers.ServerList
 import dev.artalex.herdr.ui.common.rememberLocalNetworkAccess
@@ -95,7 +97,7 @@ fun ServerScreen(viewModel: SettingsViewModel, serverId: String?, canGoBack: Boo
             onSaved()
           }
         },
-        enabled = form.isComplete && key != null,
+        enabled = form.isComplete && form.sessionProblem == null && key != null,
         modifier = Modifier.testTag("save"),
       ) {
         Text(stringResource(R.string.server_save))
@@ -138,16 +140,26 @@ private fun ServerForm(form: ServerConfig, onChange: (ServerConfig) -> Unit) {
   }
   Field(R.string.server_user, form.user, "user", KeyboardType.Ascii) { onChange(form.copy(user = it)) }
   Field(R.string.server_herdr_path, form.herdrPath, "herdrPath", KeyboardType.Uri) { onChange(form.copy(herdrPath = it)) }
-  Field(R.string.server_session, form.session, "session", KeyboardType.Ascii) { onChange(form.copy(session = it)) }
+  // herdr's rules for the name, checked as it is typed: the server can't be saved with a name herdr refuses.
+  val sessionError =
+    when (form.sessionProblem) {
+      SessionNameProblem.EMPTY -> stringResource(R.string.server_session_empty, DEFAULT_SESSION)
+      SessionNameProblem.CHARACTERS -> stringResource(R.string.server_session_characters)
+      SessionNameProblem.TOO_LONG -> stringResource(R.string.server_session_too_long)
+      SessionNameProblem.DOTS -> stringResource(R.string.server_session_dots)
+      null -> null
+    }
+  Field(R.string.server_session, form.session, "session", KeyboardType.Ascii, supporting = sessionError, isError = sessionError != null) { onChange(form.copy(session = it)) }
 }
 
 @Composable
-private fun Field(label: Int, value: String, tag: String, type: KeyboardType, supporting: String? = null, onChange: (String) -> Unit) {
+private fun Field(label: Int, value: String, tag: String, type: KeyboardType, supporting: String? = null, isError: Boolean = false, onChange: (String) -> Unit) {
   OutlinedTextField(
     value = value,
     onValueChange = onChange,
     label = { Text(stringResource(label)) },
     supportingText = supporting?.let { { Text(it) } },
+    isError = isError,
     singleLine = true,
     keyboardOptions = KeyboardOptions(keyboardType = type, autoCorrectEnabled = false),
     modifier = Modifier.fillMaxWidth().testTag(tag),

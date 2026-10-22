@@ -15,6 +15,10 @@
     <string name="server_user">User</string>
     <string name="server_herdr_path">Path to herdr</string>
     <string name="server_session">herdr session</string>
+    <string name="server_session_empty">Enter a name: herdr\'s main session is “%1$s”</string>
+    <string name="server_session_characters">Only Latin letters, digits, “.”, “_” and “-”</string>
+    <string name="server_session_too_long">At most 64 characters</string>
+    <string name="server_session_dots">Can\'t be “.” or “..”</string>
     <string name="server_save">Save</string>
     <string name="server_delete">Delete server</string>
     <string name="server_delete_title">Delete server?</string>

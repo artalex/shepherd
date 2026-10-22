@@ -27,6 +27,26 @@ class ServerConfigTest {
   }
 
   @Test
+  fun sessionNameFollowsHerdrsRules() {
+    assertNull(sessionNameProblem(DEFAULT_SESSION))
+    assertNull(sessionNameProblem("Lab-1.test_2"))
+    assertNull(sessionNameProblem("a".repeat(MAX_SESSION_NAME_LENGTH)))
+    assertNull(sessionNameProblem("..."))
+    assertEquals(SessionNameProblem.EMPTY, sessionNameProblem(""))
+    assertEquals(SessionNameProblem.CHARACTERS, sessionNameProblem("my session"))
+    assertEquals(SessionNameProblem.CHARACTERS, sessionNameProblem("../prod"))
+    assertEquals(SessionNameProblem.CHARACTERS, sessionNameProblem("лаборатория"))
+    // Too long as well: the characters are what to fix first.
+    assertEquals(SessionNameProblem.CHARACTERS, sessionNameProblem("я".repeat(MAX_SESSION_NAME_LENGTH)))
+    assertEquals(SessionNameProblem.TOO_LONG, sessionNameProblem("a".repeat(MAX_SESSION_NAME_LENGTH + 1)))
+    assertEquals(SessionNameProblem.DOTS, sessionNameProblem("."))
+    assertEquals(SessionNameProblem.DOTS, sessionNameProblem(".."))
+    // The form saves the name trimmed.
+    assertNull(node.copy(session = " lab ").sessionProblem)
+    assertEquals(SessionNameProblem.EMPTY, node.copy(session = "  ").sessionProblem)
+  }
+
+  @Test
   fun listRoundTripsAndUnreadableTextIsNoServers() {
     val servers = listOf(node, ServerConfig(id = "b", name = "nas", host = "nas", port = 2222, user = "root", session = "x", active = false))
     assertEquals(servers, ServerList.decode(ServerList.encode(servers)))

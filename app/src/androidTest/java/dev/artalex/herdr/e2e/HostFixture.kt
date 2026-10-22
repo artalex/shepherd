@@ -62,12 +62,12 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
   }
 
   /**
-   * Adds this session to the app's servers as [id], switched on with its host key accepted, and connects it afresh.
-   * Coming to the foreground doesn't do that reliably: ProcessLifecycleOwner reports the previous test's activity
-   * gone only 700 ms later, and a test that starts its own sooner never takes the app through the background, so
-   * nothing would connect it.
+   * Adds [session], this one unless a test names another, to the app's servers as [id], switched on with its host key
+   * accepted, and connects it afresh. Coming to the foreground doesn't do that reliably: ProcessLifecycleOwner reports
+   * the previous test's activity gone only 700 ms later, and a test that starts its own sooner never takes the app
+   * through the background, so nothing would connect it.
    */
-  fun addServer(container: AppContainer, id: String, name: String = ""): Server {
+  fun addServer(container: AppContainer, id: String, name: String = "", session: String = this.session): Server {
     val config = ServerConfig(id = id, name = name, host = e2e.host, port = e2e.port.toInt(), user = e2e.user, session = session, hostKey = hostKey.encode())
     var server: Server? = null
     InstrumentationRegistry.getInstrumentation().runOnMainSync {

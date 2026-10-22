@@ -1,6 +1,8 @@
 package dev.artalex.herdr.core.servers
 
 import dev.artalex.herdr.core.DEFAULT_SESSION
+import dev.artalex.herdr.core.SessionNameProblem
+import dev.artalex.herdr.core.sessionNameProblem
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.ssh.SshTarget
 import java.util.UUID
@@ -28,6 +30,9 @@ data class ServerConfig(
   val active: Boolean = true,
 ) {
   val isComplete: Boolean get() = host.isNotBlank() && user.isNotBlank() && port in 1..65535
+
+  /** What herdr would refuse in [session] as the form saves it, trimmed; null if herdr takes it. */
+  val sessionProblem: SessionNameProblem? get() = sessionNameProblem(session.trim())
 
   val target: SshTarget get() = SshTarget(host.trim(), port, user.trim())
 
