@@ -32,43 +32,64 @@ unset $(compgen -v HERDR_)
 started_emulator=0
 emulator_pid=
 herdr_pids=()
+
+# Stops the emulator this script started. The next run can start the AVD only once this emulator has let go of it, and
+# one that doesn't take the console's kill within a minute is killed as a process.
+stop_emulator() {
+  timeout 20 "$ADB" emu kill >/dev/null 2>&1 || true
+  for _ in $(seq 1 60); do kill -0 "$emulator_pid" 2>/dev/null || break; sleep 1; done
+  kill "$emulator_pid" 2>/dev/null || true
+  wait "$emulator_pid" 2>/dev/null || true
+}
+
 cleanup() {
   for i in "${!herdr_pids[@]}"; do
     "$HERDR" --session "${SESSIONS[$i]}" server stop >/dev/null 2>&1 || true
     wait "${herdr_pids[$i]}" 2>/dev/null || true
     "$HERDR" session delete "${SESSIONS[$i]}" >/dev/null 2>&1 || true
   done
-  if [ "$started_emulator" = 1 ]; then
-    "$ADB" emu kill >/dev/null 2>&1 || true
-    # The next run can start the AVD only once this emulator has let go of it.
-    wait "$emulator_pid" 2>/dev/null || true
-  fi
+  if [ "$started_emulator" = 1 ]; then stop_emulator; fi
 }
 trap cleanup EXIT
 
 # An emulator only: adb may also know a phone paired over Wi-Fi debugging, and Gradle installs the test APKs on
 # every device it sees. adb and Gradle both take the device from ANDROID_SERIAL; set it to pick one yourself.
 running_emulator() { "$ADB" devices | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1; exit }'; }
+
+# No window and software rendering: the machine's GPU may be busy with other work.
+start_emulator() {
+  "$SDK/emulator/emulator" -avd "$AVD" -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot >/dev/null 2>&1 &
+  emulator_pid=$!
+  started_emulator=1
+  until ANDROID_SERIAL=$(running_emulator); [ -n "$ANDROID_SERIAL" ]; do
+    kill -0 "$emulator_pid" 2>/dev/null || { echo "the emulator for $AVD exited before it came up" >&2; exit 1; }
+    sleep 2
+  done
+  export ANDROID_SERIAL
+}
+
+# A booting emulator can stall with adb still listing it and adb shell hanging: 5 minutes at most.
+booted() {
+  local deadline=$((SECONDS + 300))
+  until [ "$(timeout 10 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do
+    [ "$SECONDS" -lt "$deadline" ] || return 1
+    sleep 2
+  done
+}
+
 if [ -z "${ANDROID_SERIAL:-}" ]; then
   ANDROID_SERIAL=$(running_emulator)
-  if [ -z "$ANDROID_SERIAL" ]; then
-    # No window and software rendering: the machine's GPU may be busy with other work.
-    "$SDK/emulator/emulator" -avd "$AVD" -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot >/dev/null 2>&1 &
-    emulator_pid=$!
-    started_emulator=1
-    until ANDROID_SERIAL=$(running_emulator); [ -n "$ANDROID_SERIAL" ]; do
-      kill -0 "$emulator_pid" 2>/dev/null || { echo "the emulator for $AVD exited before it came up" >&2; exit 1; }
-      sleep 2
-    done
-  fi
+  [ -n "$ANDROID_SERIAL" ] || start_emulator
 fi
 export ANDROID_SERIAL
-# A booting emulator can stall with adb still listing it and adb shell hanging: give up instead of waiting for ever.
-boot_deadline=$((SECONDS + 300))
-until [ "$(timeout 10 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do
-  [ "$SECONDS" -lt "$boot_deadline" ] || { echo "$ANDROID_SERIAL did not finish booting in 5 minutes" >&2; exit 1; }
-  sleep 2
-done
+if ! booted; then
+  # Stalled boots are rare and don't repeat: an emulator of this script's own gets one more go.
+  [ "$started_emulator" = 1 ] || { echo "$ANDROID_SERIAL did not finish booting in 5 minutes" >&2; exit 1; }
+  echo "$ANDROID_SERIAL did not finish booting in 5 minutes; starting the emulator again" >&2
+  stop_emulator
+  start_emulator
+  booted || { echo "$ANDROID_SERIAL did not finish booting in 5 minutes, twice" >&2; exit 1; }
+fi
 # The tests need the screen on and unlocked: it times out during a long build, and the notification tests lock it.
 "$ADB" shell svc power stayon true
 "$ADB" shell input keyevent KEYCODE_WAKEUP

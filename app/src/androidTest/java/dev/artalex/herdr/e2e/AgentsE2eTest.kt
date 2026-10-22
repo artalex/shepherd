@@ -21,6 +21,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
+import dev.artalex.herdr.core.snippets.Snippet
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -237,7 +238,7 @@ class AgentsE2eTest {
       compose.onNodeWithTag("prompt").performTextInput("/effort max")
       snippetsMenu("saveSnippet")
       compose.waitUntilExactlyOneExists(hasText(text(R.string.snippets_saved, "/effort max")), 5_000)
-      assertEquals(listOf("/effort max"), snippets.snippets.value)
+      assertEquals(listOf(Snippet("/effort max")), snippets.snippets.value)
 
       // Into an empty prompt it goes as it is, ready to send; after a word, with a space between them.
       compose.onNodeWithTag("prompt").performTextReplacement("")
@@ -260,7 +261,7 @@ class AgentsE2eTest {
       Espresso.closeSoftKeyboard()
       Screens.take(compose, "08e-agent-snippets-edit")
       compose.onNodeWithTag("saveSnippets").performClick()
-      assertEquals(listOf("/effort max", "/compact", "продолжай"), snippets.snippets.value)
+      assertEquals(listOf(Snippet("/effort max"), Snippet("/compact"), Snippet("продолжай")), snippets.snippets.value)
       compose.onNodeWithTag("snippets").performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("snippet-2") and hasText("продолжай"), 5_000)
       Screens.take(compose, "08d-agent-snippets-menu")
@@ -272,7 +273,7 @@ class AgentsE2eTest {
       compose.onNodeWithTag("snippetField-1").performTextReplacement("/compact keep the plan")
       compose.onNodeWithTag("deleteSnippet-2").performClick()
       compose.onNodeWithTag("saveSnippets").performClick()
-      assertEquals(listOf("/effort max", "/compact keep the plan"), snippets.snippets.value)
+      assertEquals(listOf(Snippet("/effort max"), Snippet("/compact keep the plan")), snippets.snippets.value)
     }
   }
 

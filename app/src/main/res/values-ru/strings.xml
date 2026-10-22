@@ -111,6 +111,11 @@
     <string name="snippets_add">Добавить</string>
     <string name="snippets_delete">Удалить сниппет</string>
     <string name="snippets_done">Сохранить</string>
+    <string name="snippets_on_start">При запуске: %1$s</string>
+    <string name="snippets_on_start_none">нет</string>
+    <string name="snippets_on_start_hint">при запуске %1$s</string>
+    <string name="snippets_on_start_late">Не отправлено при запуске: %1$s. Агент не освободился за 3 минуты.</string>
+    <string name="snippets_on_start_failed">Не удалось отправить при запуске: %1$s.</string>
     <string name="agent_no_screen">Жду экран панели…</string>
     <string name="error_agent_blocked">Агент ждёт ответа в диалоге — ответьте кнопками.</string>
     <string name="error_agent_not_ready">Агент уже не запущен в этой панели.</string>

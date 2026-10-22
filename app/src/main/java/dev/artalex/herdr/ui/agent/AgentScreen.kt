@@ -74,6 +74,7 @@ import dev.artalex.herdr.R
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.AgentStatus
 import dev.artalex.herdr.core.model.PaneInfo
+import dev.artalex.herdr.core.snippets.Snippet
 import dev.artalex.herdr.core.store.Board
 import dev.artalex.herdr.ui.agents.paneSubtitle
 import dev.artalex.herdr.ui.agents.paneTitle
@@ -125,6 +126,12 @@ fun AgentScreen(
   val resources = LocalResources.current
   LaunchedEffect(viewModel) {
     viewModel.messages.collect { snackbar.showSnackbar(resources.getString(it.text, it.arg)) }
+  }
+  LaunchedEffect(viewModel) {
+    viewModel.startPromptsFailures.collect {
+      val text = if (it.late) R.string.snippets_on_start_late else R.string.snippets_on_start_failed
+      snackbar.showSnackbar(resources.getString(text, it.prompts.joinToString(", ")))
+    }
   }
   LaunchedEffect(viewModel) { viewModel.opened.collect { onSwitchPane(viewModel.server.id, it) } }
   LaunchedEffect(closed) { if (closed) onPaneClosed() }
@@ -258,13 +265,17 @@ fun AgentScreen(
           snippets = {
             SnippetsMenu(
               snippets,
-              canSave = prompt.text.isNotBlank() && prompt.text.trim() !in snippets,
+              canSave = prompt.text.isNotBlank() && snippets.none { it.text == prompt.text.trim() },
               onInsert = {
                 prompt = prompt.withSnippet(it)
                 focusPrompt = true
               },
               onSave = { viewModel.saveSnippet(prompt.text) },
-              onEdit = { editSnippets = true },
+              onEdit = {
+                // The dialog offers the server's agents for the snippets that go to them when they start.
+                viewModel.loadAgents()
+                editSnippets = true
+              },
             )
           },
           onSend = {
@@ -297,6 +308,7 @@ fun AgentScreen(
   if (editSnippets) {
     SnippetsDialog(
       snippets,
+      agents,
       onSave = {
         viewModel.setSnippets(it)
         editSnippets = false
@@ -517,7 +529,7 @@ private fun PromptRow(
  * to it; the prompt's text can become a snippet, and the list is edited in [SnippetsDialog].
  */
 @Composable
-private fun SnippetsMenu(snippets: List<String>, canSave: Boolean, onInsert: (String) -> Unit, onSave: () -> Unit, onEdit: () -> Unit) {
+private fun SnippetsMenu(snippets: List<Snippet>, canSave: Boolean, onInsert: (String) -> Unit, onSave: () -> Unit, onEdit: () -> Unit) {
   var open by remember { mutableStateOf(false) }
   Box {
     IconButton(onClick = { open = true }, modifier = Modifier.testTag("snippets")) {
@@ -527,10 +539,21 @@ private fun SnippetsMenu(snippets: List<String>, canSave: Boolean, onInsert: (St
       if (snippets.isEmpty()) DropdownMenuItem(text = { Text(stringResource(R.string.snippets_none)) }, onClick = {}, enabled = false)
       snippets.forEachIndexed { i, snippet ->
         DropdownMenuItem(
-          text = { Text(snippet, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+          text = {
+            Column {
+              Text(snippet.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+              snippet.onStart?.let {
+                Text(
+                  stringResource(R.string.snippets_on_start_hint, agentTitle(it)),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+            }
+          },
           onClick = {
             open = false
-            onInsert(snippet)
+            onInsert(snippet.text)
           },
           modifier = Modifier.testTag("snippet-$i"),
         )
@@ -559,35 +582,46 @@ private fun SnippetsMenu(snippets: List<String>, canSave: Boolean, onInsert: (St
   }
 }
 
-/** The snippets to change, delete or add to; blank ones and repeats go when the list is saved. */
+/** A row of [SnippetsDialog]. Rows carry ids of their own: a deleted row takes its fields along, not the next row's. */
+private data class SnippetRow(val id: Int, val text: String, val onStart: String?)
+
+/**
+ * The snippets to change, delete or add to; blank ones and repeats go when the list is saved. A snippet can also go to
+ * an agent by itself when the phone starts one: [agents] are those the server has, once known.
+ */
 @Composable
-private fun SnippetsDialog(snippets: List<String>, onSave: (List<String>) -> Unit, onDismiss: () -> Unit) {
-  // Rows carry ids of their own: a deleted row takes its field along, not the one of the row after it.
-  var rows by remember { mutableStateOf(snippets.ifEmpty { listOf("") }.withIndex().map { it.index to it.value }) }
+private fun SnippetsDialog(snippets: List<Snippet>, agents: List<AgentKind>?, onSave: (List<Snippet>) -> Unit, onDismiss: () -> Unit) {
+  var rows by remember { mutableStateOf(snippets.ifEmpty { listOf(Snippet("")) }.mapIndexed { i, it -> SnippetRow(i, it.text, it.onStart) }) }
   var nextId by remember { mutableIntStateOf(rows.size) }
+  fun change(id: Int, edit: (SnippetRow) -> SnippetRow) {
+    rows = rows.map { if (it.id == id) edit(it) else it }
+  }
   AlertDialog(
     onDismissRequest = onDismiss,
     title = { Text(stringResource(R.string.snippets_title)) },
     text = {
       Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        rows.forEachIndexed { i, (id, text) ->
-          key(id) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              OutlinedTextField(
-                value = text,
-                onValueChange = { changed -> rows = rows.map { if (it.first == id) id to changed else it } },
-                maxLines = 4,
-                modifier = Modifier.weight(1f).testTag("snippetField-$i"),
-              )
-              IconButton(onClick = { rows = rows.filter { it.first != id } }, modifier = Modifier.testTag("deleteSnippet-$i")) {
-                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.snippets_delete))
+        rows.forEachIndexed { i, row ->
+          key(row.id) {
+            Column {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                  value = row.text,
+                  onValueChange = { changed -> change(row.id) { it.copy(text = changed) } },
+                  maxLines = 4,
+                  modifier = Modifier.weight(1f).testTag("snippetField-$i"),
+                )
+                IconButton(onClick = { rows = rows.filter { it.id != row.id } }, modifier = Modifier.testTag("deleteSnippet-$i")) {
+                  Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.snippets_delete))
+                }
               }
+              StartChoice(row.onStart, agents, Modifier.testTag("snippetStart-$i")) { kind -> change(row.id) { it.copy(onStart = kind) } }
             }
           }
         }
         TextButton(
           onClick = {
-            rows = rows + (nextId to "")
+            rows = rows + SnippetRow(nextId, "", null)
             nextId++
           },
           modifier = Modifier.testTag("addSnippet"),
@@ -597,10 +631,45 @@ private fun SnippetsDialog(snippets: List<String>, onSave: (List<String>) -> Uni
         }
       }
     },
-    confirmButton = { TextButton(onClick = { onSave(rows.map { it.second }) }, modifier = Modifier.testTag("saveSnippets")) { Text(stringResource(R.string.snippets_done)) } },
+    confirmButton = {
+      TextButton(onClick = { onSave(rows.map { Snippet(it.text, it.onStart) }) }, modifier = Modifier.testTag("saveSnippets")) {
+        Text(stringResource(R.string.snippets_done))
+      }
+    },
     dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
   )
 }
+
+/** Which agent a snippet goes to when the phone starts it: none, one of [agents], or the one it goes to already. */
+@Composable
+private fun StartChoice(onStart: String?, agents: List<AgentKind>?, modifier: Modifier, onChange: (String?) -> Unit) {
+  var open by remember { mutableStateOf(false) }
+  val kinds = (agents.orEmpty().map { it.kind } + listOfNotNull(onStart)).distinct()
+  Box {
+    TextButton(onClick = { open = true }, modifier = modifier) {
+      Text(stringResource(R.string.snippets_on_start, onStart?.let(::agentTitle) ?: stringResource(R.string.snippets_on_start_none)))
+      Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+      @Composable
+      fun option(kind: String?, title: String) =
+        DropdownMenuItem(
+          text = { Text(title) },
+          onClick = {
+            open = false
+            onChange(kind)
+          },
+          modifier = Modifier.testTag("startOption-${kind ?: "none"}"),
+        )
+
+      option(null, stringResource(R.string.snippets_on_start_none))
+      for (kind in kinds) option(kind, agentTitle(kind))
+    }
+  }
+}
+
+/** The name of agent kind [kind], or [kind] itself for one this version doesn't know. */
+private fun agentTitle(kind: String): String = AgentKind.entries.firstOrNull { it.kind == kind }?.title ?: kind
 
 /** The one character typed at the cursor that turns [before] into [after], or null for any other edit. */
 private fun typedChar(before: TextFieldValue, after: TextFieldValue): Char? {

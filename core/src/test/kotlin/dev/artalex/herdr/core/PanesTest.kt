@@ -1,16 +1,24 @@
 package dev.artalex.herdr.core
 
 import dev.artalex.herdr.core.host.parseInstalledAgents
+import dev.artalex.herdr.core.model.AgentInfo
 import dev.artalex.herdr.core.model.AgentKind
+import dev.artalex.herdr.core.model.AgentStatus
+import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.rpc.HerdrApi
 import dev.artalex.herdr.core.store.agentName
+import dev.artalex.herdr.core.store.promptWhenReady
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -65,5 +73,55 @@ class PanesTest {
     }
     HerdrApi(transport).startNamedAgentInNewPane("w1:p2", AgentKind.CLAUDE, "/home/u/proj")
     assertEquals(3, transport.requests.size)
+  }
+
+  private fun snapshot(status: AgentStatus, launching: Boolean = false) =
+    SessionSnapshot(
+      version = "0.9.5",
+      protocol = 22,
+      agents = listOf(AgentInfo("w1:p2", "t2", "w1", "w1:t2", agent = "claude", agentStatus = status, launchPending = launching)),
+    )
+
+  @Test
+  fun promptsWaitForTheStartedAgentToBeReady() = runTest {
+    val snapshots = MutableStateFlow(snapshot(AgentStatus.UNKNOWN, launching = true))
+    val sent = mutableListOf<String>()
+    val result = async { promptWhenReady("w1:p2", listOf("/effort max", "/compact"), snapshots, 180_000) { sent += it } }
+    runCurrent()
+    // Started, but herdr doesn't know yet what the agent shows; then the agent asks whether to trust its folder.
+    snapshots.value = snapshot(AgentStatus.UNKNOWN)
+    runCurrent()
+    snapshots.value = snapshot(AgentStatus.BLOCKED)
+    runCurrent()
+    assertEquals(emptyList(), sent)
+    snapshots.value = snapshot(AgentStatus.IDLE)
+    assertEquals(emptyList(), result.await())
+    assertEquals(listOf("/effort max", "/compact"), sent)
+  }
+
+  @Test
+  fun promptRefusedForADialogGoesAgainLater() = runTest {
+    var refusals = 1
+    val sent = mutableListOf<String>()
+    val left = promptWhenReady("w1:p2", listOf("/effort max"), MutableStateFlow(snapshot(AgentStatus.IDLE)), 180_000) {
+      if (refusals-- > 0) throw ApiError("agent_blocked", "the agent shows a dialog")
+      sent += it
+    }
+    assertEquals(emptyList(), left)
+    assertEquals(listOf("/effort max"), sent)
+  }
+
+  @Test
+  fun promptsNotSentInTimeComeBack() = runTest {
+    val left = promptWhenReady("w1:p2", listOf("/effort max"), MutableStateFlow(snapshot(AgentStatus.BLOCKED)), 180_000) { error("never ready") }
+    assertEquals(listOf("/effort max"), left)
+  }
+
+  @Test
+  fun otherRefusalsAreNotRetried() = runTest {
+    val error = assertFailsWith<ApiError> {
+      promptWhenReady("w1:p2", listOf("/effort max"), MutableStateFlow(snapshot(AgentStatus.IDLE)), 180_000) { throw ApiError("agent_not_ready", "gone") }
+    }
+    assertEquals("agent_not_ready", error.code)
   }
 }

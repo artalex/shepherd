@@ -14,11 +14,13 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
+import dev.artalex.herdr.core.snippets.Snippet
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Rule
@@ -148,6 +150,45 @@ class PanesE2eTest {
       // The app shows the new pane: a prompt from it lands there.
       sendPrompt("новая сессия")
       fixture.waitForScreen(checkNotNull(created.field("pane_id")), pump = { compose.waitForIdle() }) { it.contains("новая сессия") }
+    }
+  }
+
+  @Test
+  fun newSessionGetsItsStartSnippetsOnceReady() {
+    val snippets = ApplicationProvider.getApplicationContext<HerdrApp>().container.snippets
+    snippets.set(listOf(Snippet("/effort max"), Snippet("продолжай"), Snippet("/model o3", onStart = "codex")))
+    launchApp(compose, "newSessionGetsItsStartSnippetsOnceReady") {
+      openPane(first)
+      // /effort max is to go to Claude when the phone starts it: the dialog offers the agents the server has.
+      compose.onNodeWithTag("snippets").performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("editSnippets"), 5_000)
+      compose.onNodeWithTag("editSnippets").performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("snippetStart-0"), 5_000)
+      compose.onNodeWithTag("snippetStart-0").performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("startOption-claude"), 10_000)
+      Screens.take(compose, "08f-agent-snippet-on-start")
+      compose.onNodeWithTag("startOption-claude").performClick()
+      compose.onNodeWithTag("saveSnippets").performClick()
+      assertEquals(listOf(Snippet("/effort max", onStart = "claude"), Snippet("продолжай"), Snippet("/model o3", onStart = "codex")), snippets.snippets.value)
+
+      val before = fixture.panes()
+      openMenu("newSession-claude")
+      compose.onNodeWithTag("newSession-claude").performClick()
+      val created =
+        fixture
+          .waitForPanes(pump = { compose.waitForIdle() }) { panes ->
+            panes.any { p -> before.none { it.field("pane_id") == p.field("pane_id") } && p.field("agent") == "claude" }
+          }
+          .single { p -> before.none { it.field("pane_id") == p.field("pane_id") } }
+      val pane = checkNotNull(created.field("pane_id"))
+      // Nothing while the agent asks something first, such as whether to trust its folder.
+      fixture.reportAgent(pane, "blocked")
+      Thread.sleep(5_000) // two polls of the session
+      assertFalse(fixture.screen(pane).contains("/effort max"))
+      // Once it is free, Claude's snippet goes, and only that one.
+      fixture.reportAgent(pane, "idle")
+      val screen = fixture.waitForScreen(pane, timeoutMs = 20_000, pump = { compose.waitForIdle() }) { it.contains("/effort max") }
+      assertFalse(screen, screen.contains("продолжай") || screen.contains("/model o3"))
     }
   }
 

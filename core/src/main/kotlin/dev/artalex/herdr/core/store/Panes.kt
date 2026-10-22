@@ -1,9 +1,14 @@
 package dev.artalex.herdr.core.store
 
 import dev.artalex.herdr.core.model.AgentKind
+import dev.artalex.herdr.core.model.AgentStatus
+import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.rpc.HerdrApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Name attempts before giving up on `agent_name_taken`. */
 private const val NAME_ATTEMPTS = 9
@@ -11,6 +16,9 @@ private const val NAME_ATTEMPTS = 9
 /** How long a new pane's shell may take to come up, and how often to ask meanwhile. */
 private const val NEW_SHELL_WAIT_MS = 5_000L
 private const val NEW_SHELL_POLL_MS = 200L
+
+/** After herdr refused a prompt because the agent shows a dialog: the next try waits for a poll after this. */
+private const val DIALOG_RETRY_MS = 1_000L
 
 /**
  * herdr name for a [kind] agent started in [cwd]: the directory's last part in herdr's alphabet (a lowercase
@@ -56,4 +64,30 @@ suspend fun HerdrApi.startNamedAgentInNewPane(paneId: String, kind: AgentKind, c
     }
     delay(NEW_SHELL_POLL_MS)
   }
+}
+
+/** Whether the agent in [paneId] takes a prompt: it has started and neither works nor asks anything. */
+fun SessionSnapshot.agentReady(paneId: String): Boolean =
+  agents.any { it.paneId == paneId && !it.launchPending && (it.agentStatus == AgentStatus.IDLE || it.agentStatus == AgentStatus.DONE) }
+
+/**
+ * Sends [prompts] in order to the agent in [paneId] once [snapshots] show it ready ([agentReady]): a new agent has to
+ * start first, and may ask something before anything else, such as whether to trust its folder. A prompt herdr refuses
+ * because the agent shows a dialog waits for a later ready snapshot. Returns the prompts not sent within [timeoutMs].
+ */
+suspend fun promptWhenReady(paneId: String, prompts: List<String>, snapshots: Flow<SessionSnapshot>, timeoutMs: Long, send: suspend (String) -> Unit): List<String> {
+  val left = ArrayDeque(prompts)
+  withTimeoutOrNull(timeoutMs) {
+    while (left.isNotEmpty()) {
+      snapshots.first { it.agentReady(paneId) }
+      try {
+        send(left.first())
+        left.removeFirst()
+      } catch (e: ApiError) {
+        if (e.code != "agent_blocked") throw e
+        delay(DIALOG_RETRY_MS)
+      }
+    }
+  }
+  return left.toList()
 }

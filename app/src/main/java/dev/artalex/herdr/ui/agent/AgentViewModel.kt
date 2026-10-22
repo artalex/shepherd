@@ -5,10 +5,13 @@ import androidx.lifecycle.viewModelScope
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.Servers
+import dev.artalex.herdr.StartPromptsFailure
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.servers.ServerConfig
+import dev.artalex.herdr.core.snippets.Snippet
+import dev.artalex.herdr.core.snippets.onStart
 import dev.artalex.herdr.core.store.Board
 import dev.artalex.herdr.core.store.PaneGrid
 import dev.artalex.herdr.core.store.SessionState
@@ -165,7 +168,7 @@ class AgentViewModel(servers: Servers, val server: Server, val paneId: String, p
     }
 
   /** The prompt snippets, the same on every agent screen. */
-  val snippets: StateFlow<List<String>> = snippetStore.snippets
+  val snippets: StateFlow<List<Snippet>> = snippetStore.snippets
 
   /** Saves [text] at the end of the snippets and says so: the menu it came from is gone by then. */
   fun saveSnippet(text: String) {
@@ -173,7 +176,10 @@ class AgentViewModel(servers: Servers, val server: Server, val paneId: String, p
     _messages.trySend(UiMessage(R.string.snippets_saved, text.trim()))
   }
 
-  fun setSnippets(snippets: List<String>) = snippetStore.set(snippets)
+  fun setSnippets(snippets: List<Snippet>) = snippetStore.set(snippets)
+
+  /** Snippets that didn't reach an agent started from the phone, whichever screen started it. */
+  val startPromptsFailures: Flow<StartPromptsFailure> = server.startPrompts.failures
 
   /** Looks up the installed agents once; the host caches the answer for the connection. */
   fun loadAgents() {
@@ -192,13 +198,18 @@ class AgentViewModel(servers: Servers, val server: Server, val paneId: String, p
     }
   }
 
-  /** Starts a [kind] agent in this pane, which must be at a shell prompt, as after the previous agent exited. */
+  /**
+   * Starts a [kind] agent in this pane, which must be at a shell prompt, as after the previous agent exited. The
+   * snippets for its start go to it once it is ready.
+   */
   fun startAgent(kind: AgentKind) =
     act {
-      server.host?.api?.startNamedAgent(paneId, kind, cwd)
+      val api = server.host?.api ?: return@act
+      api.startNamedAgent(paneId, kind, cwd)
+      server.startPrompts.send(paneId, snippetStore.snippets.value.onStart(kind))
     }
 
-  /** Opens a tab in this pane's workspace and directory, starts a [kind] agent there and shows it. */
+  /** Opens a tab in this pane's workspace and directory, starts a [kind] agent there and shows it; see [startAgent]. */
   fun newSession(kind: AgentKind) =
     act {
       val api = server.host?.api ?: return@act
@@ -206,6 +217,7 @@ class AgentViewModel(servers: Servers, val server: Server, val paneId: String, p
       val dir = cwd
       val created = api.createTab(pane.workspaceId, dir)
       api.startNamedAgentInNewPane(created.paneId, kind, dir)
+      server.startPrompts.send(created.paneId, snippetStore.snippets.value.onStart(kind))
       _opened.send(created.paneId)
     }
 

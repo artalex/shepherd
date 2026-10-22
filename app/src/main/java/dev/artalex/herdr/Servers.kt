@@ -43,6 +43,9 @@ class Server(
   val streams = PaneStreams(this)
   val files = FileTransfers(app, this, transfers)
 
+  /** Snippets for agents the phone started; see [StartPrompts]. */
+  val startPrompts = StartPrompts(this)
+
   /** The server's settings as the user changes them. */
   val config: Flow<ServerConfig> = store.servers.mapNotNull { list -> list.firstOrNull { it.id == id } }.distinctUntilChanged()
 
