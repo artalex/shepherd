@@ -27,6 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -56,6 +59,7 @@ import dev.artalex.herdr.R
 import dev.artalex.herdr.ui.common.KeyTarget
 import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.RowKey
+import dev.artalex.herdr.ui.common.rememberLinkOpener
 import dev.artalex.herdr.ui.common.rememberTerminalTypeface
 import dev.artalex.herdr.core.terminal.CloseReason
 import org.connectbot.terminal.Terminal
@@ -95,6 +99,8 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
   val context = LocalContext.current
   // The button in the extra row, the selection menu and the keyboard's paste key all paste through here.
   val paste: () -> Unit = { clipboardText(context)?.let(viewModel::paste) }
+  val snackbar = remember { SnackbarHostState() }
+  val openLink = rememberLinkOpener(snackbar)
   LaunchedEffect(closed) { if (closed) onPaneClosed() }
   // Key events (hardware keyboard, the system input path) go to the terminal, also after rotation: it is the
   // only focusable element on this screen, and takes focus again once frames arrive.
@@ -142,8 +148,13 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
           focusRequester = focus,
           modifierManager = viewModel.modifiers,
           onPasteRequest = paste,
+          onHyperlinkClick = openLink,
         )
         PhaseOverlay(phase, onReconnect = stream::reconnect, onTakeOver = stream::takeOver)
+        // Over the bottom of the terminal, as on the agent screen, rather than over the extra keys.
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter)) {
+          Snackbar(it, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
+        }
       }
       if (showExtraKeys) ExtraKeysRow(viewModel, onPaste = paste)
     }

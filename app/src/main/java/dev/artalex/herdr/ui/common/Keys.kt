@@ -24,7 +24,8 @@ fun KeyTarget(content: @Composable () -> Unit) = CompositionLocalProvider(LocalM
 
 /** A key of the rows over the keyboard: little room around the label, so more keys fit; one-character keys come out round. */
 @Composable
-fun RowKey(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) = Key(label, onClick, modifier, ButtonDefaults.outlinedButtonColors())
+fun RowKey(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) =
+  Key(label, onClick, modifier, ButtonDefaults.outlinedButtonColors(), enabled)
 
 /** Shift or Ctrl in such a row: as big as the other keys, and filled while it is on. */
 @Composable
@@ -44,9 +45,9 @@ fun ModKey(label: String, on: Boolean, onClick: () -> Unit, modifier: Modifier =
   )
 
 @Composable
-private fun Key(label: String, onClick: () -> Unit, modifier: Modifier, colors: ButtonColors) =
+private fun Key(label: String, onClick: () -> Unit, modifier: Modifier, colors: ButtonColors, enabled: Boolean = true) =
   KeyTarget {
-    OutlinedButton(onClick = onClick, colors = colors, contentPadding = PaddingValues(horizontal = 8.dp), modifier = modifier.widthIn(min = 40.dp)) {
+    OutlinedButton(onClick = onClick, enabled = enabled, colors = colors, contentPadding = PaddingValues(horizontal = 8.dp), modifier = modifier.widthIn(min = 40.dp)) {
       Text(label)
     }
   }

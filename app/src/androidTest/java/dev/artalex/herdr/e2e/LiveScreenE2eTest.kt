@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
@@ -221,12 +223,16 @@ class LiveScreenE2eTest {
     launchApp(compose, "paneControlledElsewhereShowsSnapshotUntilFree") {
       openPane(held)
       compose.waitUntilExactlyOneExists(hasTestTag("snapshot"), 15_000)
+      // Home, End and the page keys type into a stream of the app's own, and there is none.
+      compose.onNodeWithTag("quickKeys").performScrollToNode(hasTestTag("key-home"))
+      compose.onNodeWithTag("key-home").assertIsNotEnabled()
       // The snapshot comes from pane.read, with the pane's own sequences rather than the stream's.
       printFaint(held)
       compose.waitUntil(10_000) { pixelsOf("snapshot", DIM_WHITE) > 2_000 }
       fixture.releaseHeld(heldTerminal)
       // The screen tries again every few seconds and takes the pane once it is free.
       compose.waitUntilExactlyOneExists(hasTestTag("liveScreen"), 20_000)
+      compose.waitUntilExactlyOneExists(hasTestTag("key-home") and isEnabled(), 10_000)
     }
   }
 }

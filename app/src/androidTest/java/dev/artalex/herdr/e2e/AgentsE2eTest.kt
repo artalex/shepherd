@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -212,6 +213,24 @@ class AgentsE2eTest {
       key("key-tab")
       key("key-enter")
       fixture.waitForScreen(shell) { screen -> screen.lines().any { it.trim() == "^I" } }
+    }
+  }
+
+  @Test
+  fun homeEndAndPageKeysGoThroughTheStream() {
+    fixture.type(shell, "cat -v")
+    launchApp(compose, "homeEndAndPageKeysGoThroughTheStream") {
+      openPane(shell)
+      // herdr's API has no names for these keys: they type into the pane's live stream and wait for it.
+      compose.onNodeWithTag("quickKeys").performScrollToNode(hasTestTag("key-pgdn"))
+      compose.waitUntilExactlyOneExists(hasTestTag("key-home") and isEnabled(), 15_000)
+      Screens.take(compose, "08g-agent-page-keys")
+      for (tag in listOf("key-home", "key-end", "key-pgup", "key-pgdn")) key(tag)
+      // The terminal echoes the keys as they come. Enter goes through the API, so it waits for them.
+      val keys = "^[[H^[[F^[[5~^[[6~"
+      fixture.waitForScreen(shell) { it.contains(keys) }
+      key("key-enter")
+      fixture.waitForScreen(shell) { screen -> screen.lines().count { it.trim() == keys } == 2 }
     }
   }
 

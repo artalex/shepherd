@@ -72,6 +72,8 @@ class PaneStream(private val server: Server, private val paneId: String) {
         session?.let { s -> server.scope.launch { runCatching { s.sendBytes(bytes) } } }
       },
       onResize = ::onResize,
+      // Links in the text get underlined, and a tap on one goes to the screen's onHyperlinkClick.
+      autoDetectUrls = true,
     )
 
   /** Text rows of the view, once termlib has measured it. */

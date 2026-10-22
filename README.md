@@ -16,10 +16,13 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 ## Features
 
 - All agents of all your servers in one list, with their status: needs input, working, done, idle.
-- Answer an agent with one tap (1/2/3, Enter, Tab, Esc, arrows, Shift, Ctrl, Ctrl+C) or send it a prompt.
-- Snippets for the prompt: text you send often, such as `/effort max`, saved once and put in from a menu.
+- Answer an agent with one tap (1/2/3, Enter, Tab, Esc, arrows, Shift, Ctrl, Ctrl+C, Home, End, PgUp, PgDn) or send it
+  a prompt.
+- Snippets for the prompt: text you send often, such as `/effort max`, saved once and put in from a menu. A snippet can
+  also go on its own to each new session of a chosen agent that you start from the app, once the agent is ready.
 - Notifications when an agent needs input or finishes, with the phone locked too.
 - A full terminal for any pane.
+- Web links on the screen open in the phone's browser with a tap, on the agent screen and in the terminal.
 - Files: download a file the agent mentions on screen, such as a screenshot or an APK, and open it; send files from
   the phone to the machine.
 - Start an agent in a new tab or close a pane from the phone.

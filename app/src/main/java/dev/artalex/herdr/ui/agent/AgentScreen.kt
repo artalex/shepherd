@@ -81,8 +81,11 @@ import dev.artalex.herdr.ui.agents.paneTitle
 import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.RowKey
 import dev.artalex.herdr.ui.common.StatusChip
+import dev.artalex.herdr.ui.common.rememberLinkOpener
 import dev.artalex.herdr.ui.files.FilesSheet
+import dev.artalex.herdr.ui.terminal.TerminalPhase
 import kotlinx.coroutines.launch
+import org.connectbot.terminal.VTermKey
 
 /**
  * Label on the button and the herdr logical key it sends; Shift and Ctrl come right after the arrows. Tab is next to
@@ -93,6 +96,12 @@ private val QUICK_KEYS =
 
 /** The keys after Shift and Ctrl. */
 private val MORE_KEYS = listOf("Ctrl+C" to "ctrl+c")
+
+/**
+ * The last keys of the row, with the libvterm key each types into the live stream: herdr's API has no names for them
+ * (0.9.5 answers "unsupported key home"). While another client controls the pane there is no stream, and they are off.
+ */
+private val STREAM_KEYS = listOf("Home" to VTermKey.HOME, "End" to VTermKey.END, "PgUp" to VTermKey.PAGEUP, "PgDn" to VTermKey.PAGEDOWN)
 
 /**
  * Keys the sticky Shift goes with: Shift+Tab switches Claude Code's modes, and Shift with an arrow moves between the
@@ -124,6 +133,7 @@ fun AgentScreen(
   val snippets by viewModel.snippets.collectAsStateWithLifecycle()
   val snackbar = remember { SnackbarHostState() }
   val resources = LocalResources.current
+  val openLink = rememberLinkOpener(snackbar)
   LaunchedEffect(viewModel) {
     viewModel.messages.collect { snackbar.showSnackbar(resources.getString(it.text, it.arg)) }
   }
@@ -203,7 +213,7 @@ fun AgentScreen(
         Column(Modifier.fillMaxSize().testTag("screen")) {
           // A pane that is gone takes the screen with it; until a new one shows up in a snapshot, wait.
           if (pane == null || grid == null) NoScreen()
-          else PaneScreen(viewModel, grid)
+          else PaneScreen(viewModel, grid, onLink = openLink)
         }
         // Over the bottom of the snapshot: above the keyboard it would hide the prompt and the keys it asks to answer
         // with. Dark like the rest of the app, where Material's inverse colours would be a light box.
@@ -225,6 +235,12 @@ fun AgentScreen(
         shift = false
         ctrl = false
       }
+      fun sendToStream(vtermKey: Int) {
+        viewModel.sendStreamKey(vtermKey)
+        shift = false
+        ctrl = false
+      }
+      val phase by viewModel.stream.phase.collectAsStateWithLifecycle()
       LazyRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -234,6 +250,9 @@ fun AgentScreen(
         item { ModKey("Shift", on = shift, onClick = { shift = !shift }, modifier = Modifier.testTag("mod-shift")) }
         item { ModKey("Ctrl", on = ctrl, onClick = { ctrl = !ctrl }, modifier = Modifier.testTag("mod-ctrl")) }
         items(MORE_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
+        items(STREAM_KEYS) { (label, key) ->
+          RowKey(label, onClick = { sendToStream(key) }, modifier = Modifier.testTag("key-" + label.lowercase()), enabled = phase == TerminalPhase.Live)
+        }
       }
       if (pane?.agent != null) {
         PromptRow(

@@ -15,6 +15,10 @@ import org.connectbot.terminal.TerminalEmulatorFactory
 /**
  * A read-only terminal showing one rendered screen of a pane (`pane.read` in ANSI format).
  * Each new [text] repaints the whole grid; nothing is ever sent back. Faint text comes out in a dimmer colour.
+ *
+ * Links in it don't open. The grid takes its width from the pane's rectangle on the desktop, not from the client the
+ * screen was drawn for, so the rows that client fills end short of the grid's edge: termlib couldn't join a link
+ * wrapped over rows, and a tap would open only its first row.
  */
 @Composable
 fun SnapshotTerminal(text: String, rows: Int, cols: Int, modifier: Modifier = Modifier) {

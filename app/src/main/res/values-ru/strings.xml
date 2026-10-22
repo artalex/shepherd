@@ -156,6 +156,7 @@
     <string name="terminal_reconnect">Подключить снова</string>
     <string name="terminal_paste">Вставить</string>
     <string name="terminal_take_back">Вернуть управление</string>
+    <string name="link_not_web">Открываются только ссылки http и https: %1$s</string>
 
     <string name="files_open">Файлы</string>
     <string name="files_incoming">Входящие</string>

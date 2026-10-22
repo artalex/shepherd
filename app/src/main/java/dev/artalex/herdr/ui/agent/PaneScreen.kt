@@ -28,10 +28,11 @@ import org.connectbot.terminal.Terminal
 /**
  * The pane's screen, streamed live at the phone's size while shown: the agent redraws itself for it, where a
  * desktop-sized snapshot would be unreadably small or cut off. While another client controls the pane, a snapshot
- * at that client's size stands in.
+ * at that client's size stands in. A tap on a link in the live screen goes to [onLink]; see [SnapshotTerminal] on why
+ * the snapshot has none.
  */
 @Composable
-fun PaneScreen(viewModel: AgentViewModel, grid: PaneGrid) {
+fun PaneScreen(viewModel: AgentViewModel, grid: PaneGrid, onLink: (String) -> Unit) {
   val stream = viewModel.stream
   // Leaving the screen or the app lets go of the pane, and the desktop gets its size back.
   LifecycleStartEffect(stream) {
@@ -52,7 +53,7 @@ fun PaneScreen(viewModel: AgentViewModel, grid: PaneGrid) {
     val text by viewModel.screen.collectAsStateWithLifecycle()
     text?.let { SnapshotTerminal(it, grid.rows, grid.cols, Modifier.fillMaxSize().testTag("snapshot")) } ?: NoScreen()
   } else {
-    LiveTerminal(stream)
+    LiveTerminal(stream, onLink)
   }
 }
 
@@ -61,10 +62,10 @@ fun NoScreen() = Text(stringResource(R.string.agent_no_screen), Modifier.padding
 
 /** A read-only view of the stream; termlib picks rows and columns for the view at its default font. */
 @Composable
-private fun LiveTerminal(stream: PaneStream) {
+private fun LiveTerminal(stream: PaneStream, onLink: (String) -> Unit) {
   // termlib draws its canvas without clipping; with the keyboard up it would cover the top bar.
   Box(Modifier.fillMaxSize().clipToBounds().wheelScroll(stream).testTag("liveScreen")) {
-    Terminal(stream.emulator, modifier = Modifier.fillMaxSize(), typeface = rememberTerminalTypeface(), keyboardEnabled = false)
+    Terminal(stream.emulator, modifier = Modifier.fillMaxSize(), typeface = rememberTerminalTypeface(), keyboardEnabled = false, onHyperlinkClick = onLink)
   }
 }
 

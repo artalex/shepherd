@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -197,6 +198,11 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
 
   fun terminalId(paneId: String): String =
     raw("pane.get", buildJsonObject { put("pane_id", paneId) }).getValue("pane").jsonObject.getValue("terminal_id").jsonPrimitive.content
+
+  /** Text rows of [paneId]'s screen; while a client controls the pane, that client's rows. */
+  fun viewportRows(paneId: String): Int =
+    raw("pane.get", buildJsonObject { put("pane_id", paneId) }).getValue("pane").jsonObject
+      .getValue("scroll").jsonObject.getValue("viewport_rows").jsonPrimitive.int
 
   /**
    * Does anyone control [terminalId] directly? A probe controller tells: it gets a frame, or "retry with --takeover".

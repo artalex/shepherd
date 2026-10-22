@@ -161,6 +161,14 @@ class AgentViewModel(servers: Servers, val server: Server, val paneId: String, p
       if (pane.value?.pane?.agent != null) host.api.sendAgentKeys(paneId, keys) else host.api.sendPaneKeys(paneId, keys)
     }
 
+  /**
+   * A key herdr's API has no name for, such as Home or PgUp ([org.connectbot.terminal.VTermKey]): typed into the live
+   * stream as on the terminal screen. Without a live stream it goes nowhere.
+   */
+  fun sendStreamKey(vtermKey: Int) {
+    stream.emulator.dispatchKey(0, vtermKey)
+  }
+
   fun sendPrompt(text: String) =
     act {
       stream.scrollToBottom()

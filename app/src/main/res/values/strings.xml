@@ -156,6 +156,7 @@
     <string name="terminal_reconnect">Reconnect</string>
     <string name="terminal_paste">Paste</string>
     <string name="terminal_take_back">Take control back</string>
+    <string name="link_not_web">Only http and https links open: %1$s</string>
 
     <string name="files_open">Files</string>
     <string name="files_incoming">Incoming</string>
