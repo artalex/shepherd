@@ -61,16 +61,7 @@ class TerminalE2eTest {
 
   private fun shell(command: String) {
     automation.executeShellCommand(command).close()
-    idle(300)
-  }
-
-  /** Lets time pass with the UI running: Compose tests advance frames only when the test asks. */
-  private fun idle(ms: Long) {
-    val until = System.currentTimeMillis() + ms
-    while (System.currentTimeMillis() < until) {
-      compose.waitForIdle()
-      Thread.sleep(50)
-    }
+    compose.idle(300)
   }
 
   private fun waitPane(predicate: (String) -> Boolean) = fixture.waitForScreen(pane, pump = { compose.waitForIdle() }, predicate = predicate)
@@ -94,7 +85,7 @@ class TerminalE2eTest {
       },
       action = action,
     )
-    idle(300)
+    compose.idle(300)
   }
 
   private fun openTerminal() {
@@ -157,7 +148,7 @@ class TerminalE2eTest {
       var landscape = portrait
       val deadline = System.currentTimeMillis() + 15_000
       while (landscape.second <= portrait.second && System.currentTimeMillis() < deadline) {
-        idle(1_000)
+        compose.idle(1_000)
         typeLine("clear; stty size")
         waitPane { fixture.sttySize(pane) != null }
         landscape = fixture.sttySize(pane)!!
@@ -165,7 +156,7 @@ class TerminalE2eTest {
       assertTrue("landscape should be wider than portrait: $portrait vs $landscape", landscape.second > portrait.second)
       Screens.take(compose, "07-terminal-landscape")
       compose.onNodeWithTag("terminal").performClick() // the keyboard in landscape: the terminal keeps some rows
-      idle(1_500)
+      compose.idle(1_500)
       Screens.take(compose, "07b-terminal-landscape-keyboard")
     }
     // Leaving the screen (the activity closes) releases the pane.
@@ -180,7 +171,7 @@ class TerminalE2eTest {
       openTerminal()
       waitLive()
       typeLine("cat -v")
-      idle(1_000) // the keyboard is up
+      compose.idle(1_000) // the keyboard is up
       Screens.take(compose, "06a-terminal-extra-keys")
       // Two lines, as copied from a console. cat didn't ask for bracketed paste, so herdr pastes them as plain text.
       InstrumentationRegistry.getInstrumentation().runOnMainSync {

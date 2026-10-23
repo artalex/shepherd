@@ -7,6 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
@@ -20,6 +21,7 @@ import dev.artalex.herdr.core.terminal.CloseReason
 import dev.artalex.herdr.ui.common.rememberTerminalTypeface
 import dev.artalex.herdr.ui.terminal.PaneStream
 import dev.artalex.herdr.ui.terminal.TerminalPhase
+import dev.artalex.herdr.ui.terminal.TerminalSelection
 import dev.artalex.herdr.ui.terminal.wheelScroll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -63,9 +65,17 @@ fun NoScreen() = Text(stringResource(R.string.agent_no_screen), Modifier.padding
 /** A read-only view of the stream; termlib picks rows and columns for the view at its default font. */
 @Composable
 private fun LiveTerminal(stream: PaneStream, onLink: (String) -> Unit) {
+  val selection = remember { TerminalSelection() }
   // termlib draws its canvas without clipping; with the keyboard up it would cover the top bar.
-  Box(Modifier.fillMaxSize().clipToBounds().wheelScroll(stream).testTag("liveScreen")) {
-    Terminal(stream.emulator, modifier = Modifier.fillMaxSize(), typeface = rememberTerminalTypeface(), keyboardEnabled = false, onHyperlinkClick = onLink)
+  Box(Modifier.fillMaxSize().clipToBounds().wheelScroll(stream, selection).testTag("liveScreen")) {
+    Terminal(
+      stream.emulator,
+      modifier = Modifier.fillMaxSize(),
+      typeface = rememberTerminalTypeface(),
+      keyboardEnabled = false,
+      onSelectionControllerAvailable = { selection.controller = it },
+      onHyperlinkClick = onLink,
+    )
   }
 }
 

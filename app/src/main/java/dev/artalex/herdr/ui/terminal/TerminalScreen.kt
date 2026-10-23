@@ -101,6 +101,7 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
   val paste: () -> Unit = { clipboardText(context)?.let(viewModel::paste) }
   val snackbar = remember { SnackbarHostState() }
   val openLink = rememberLinkOpener(snackbar)
+  val selection = remember { TerminalSelection() }
   LaunchedEffect(closed) { if (closed) onPaneClosed() }
   // Key events (hardware keyboard, the system input path) go to the terminal, also after rotation: it is the
   // only focusable element on this screen, and takes focus again once frames arrive.
@@ -139,7 +140,7 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
           modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
       }
-      Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black).wheelScroll(stream).testTag("terminal").onSizeChanged { terminalHeight = it.height }) {
+      Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black).wheelScroll(stream, selection).testTag("terminal").onSizeChanged { terminalHeight = it.height }) {
         Terminal(
           stream.emulator,
           modifier = Modifier.fillMaxSize(),
@@ -147,6 +148,7 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
           keyboardEnabled = true,
           focusRequester = focus,
           modifierManager = viewModel.modifiers,
+          onSelectionControllerAvailable = { selection.controller = it },
           onPasteRequest = paste,
           onHyperlinkClick = openLink,
         )

@@ -1,36 +1,46 @@
 package dev.artalex.herdr.e2e
 
+import android.content.ClipboardManager
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
+import dev.artalex.herdr.Server
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.connectbot.terminal.R as TerminalR
 
 /**
  * The agent screen streams its pane at the phone's size against real herdr: the PTY follows the phone, prompts
  * still reach the agent, the terminal of the pane takes over without asking, and a pane someone else controls
- * shows as a snapshot until they let go. Swipes scroll the pane on both screens.
+ * shows as a snapshot until they let go. Swipes scroll the pane on both screens, but not while text is selected.
  */
 @OptIn(ExperimentalTestApi::class)
 class LiveScreenE2eTest {
@@ -38,6 +48,7 @@ class LiveScreenE2eTest {
   @get:Rule val compose = createEmptyComposeRule()
 
   private lateinit var fixture: HostFixture
+  private lateinit var server: Server
   private lateinit var shell: String
   private lateinit var agent: String
   private lateinit var held: String
@@ -56,7 +67,7 @@ class LiveScreenE2eTest {
     heldTerminal = fixture.terminalId(held)
 
     val container = ApplicationProvider.getApplicationContext<HerdrApp>().container
-    fixture.connectApp(container)
+    server = fixture.connectApp(container)
   }
 
   @After
@@ -90,6 +101,95 @@ class LiveScreenE2eTest {
       up()
     }
     compose.waitForIdle()
+  }
+
+  /** Rows to columns of [paneId]'s view on the phone, as termlib measured it. */
+  private fun grid(paneId: String): Pair<Int, Int> {
+    lateinit var grid: Pair<Int, Int>
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+      val stream = server.streams.of(paneId)
+      grid = checkNotNull(stream.rows) to checkNotNull(stream.columns)
+    }
+    return grid
+  }
+
+  /** A text cell of [paneId]'s grid in the view [tag]: termlib fills the view with the grid from its top left. */
+  private fun cellSize(tag: String, paneId: String): Size {
+    val (rows, cols) = grid(paneId)
+    val view = compose.onNodeWithTag(tag).fetchSemanticsNode().size
+    return Size(view.width.toFloat() / cols, view.height.toFloat() / rows)
+  }
+
+  /** Waits until the pane has as many rows as its view: the other screen of the pane resizes it a moment later. */
+  private fun awaitPaneFitsView(paneId: String) {
+    val deadline = System.currentTimeMillis() + 10_000
+    while (fixture.viewportRows(paneId) != grid(paneId).first) {
+      check(System.currentTimeMillis() < deadline) { "the pane never took the rows of its view" }
+      compose.waitForIdle()
+      Thread.sleep(200)
+    }
+  }
+
+  /**
+   * Selects text in [tag] from [row] down by about [rows] rows with termlib's handle: a long press takes a
+   * character, then the end handle under it is dragged down at a finger's pace.
+   */
+  private fun selectWithHandle(tag: String, paneId: String, row: Int, rows: Int) {
+    val cell = cellSize(tag, paneId)
+    compose.onNodeWithTag(tag).performTouchInput { longClick(Offset(1.5f * cell.width, (row + 0.5f) * cell.height)) }
+    compose.waitUntilExactlyOneExists(hasText(text(TerminalR.string.terminal_selection_copy)), 5_000)
+    compose.onNodeWithTag(tag).performTouchInput {
+      down(Offset(1.5f * cell.width, (row + 1.4f) * cell.height))
+      repeat(10) { moveBy(Offset(0f, rows * cell.height / 10)) }
+      advanceEventTime(300)
+      up()
+    }
+    compose.waitForIdle()
+  }
+
+  /** Selects words in [tag] from [row] down by [rows] rows: a double tap takes a word, and the finger moves on down. */
+  private fun selectWords(tag: String, paneId: String, row: Int, rows: Int) {
+    val cell = cellSize(tag, paneId)
+    val word = Offset(1.5f * cell.width, (row + 0.5f) * cell.height)
+    compose.onNodeWithTag(tag).performTouchInput {
+      click(word)
+      advanceEventTime(100)
+      down(word)
+      repeat(10) { moveBy(Offset(0f, rows * cell.height / 10)) }
+      advanceEventTime(300)
+      up()
+    }
+    compose.waitForIdle()
+  }
+
+  /** Copies the selection with termlib's button; returns the lines it put on the clipboard. */
+  private fun copySelection(): List<String> {
+    val copy = text(TerminalR.string.terminal_selection_copy)
+    compose.waitUntilExactlyOneExists(hasText(copy), 5_000)
+    compose.onNodeWithText(copy).performClick()
+    compose.waitForIdle()
+    var copied = ""
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+      val clipboard = ApplicationProvider.getApplicationContext<HerdrApp>().getSystemService(ClipboardManager::class.java)
+      copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+    }
+    return copied.lines()
+  }
+
+  /** [copied] is the text of [screen] from [row] down: the rows in between whole, the first and last in part. */
+  private fun assertCopiedRows(screen: String, row: Int, copied: List<String>) {
+    val rows = screen.lines().map { it.trim() }
+    val last = row + copied.size - 1
+    assertTrue("several rows should be copied: $copied", copied.size >= 3)
+    assertTrue("the first row from the selected character: $copied, on the screen ${rows[row]}", rows[row].endsWith(copied.first()))
+    assertEquals("the rows in between", rows.subList(row + 1, last), copied.subList(1, copied.size - 1))
+    assertTrue("the last row up to the selection's end: $copied, on the screen ${rows[last]}", rows[last].startsWith(copied.last()))
+  }
+
+  /** The pane shows [screen] still: a swipe that scrolled it would have reached herdr by now. */
+  private fun assertNotScrolled(paneId: String, screen: String) {
+    Thread.sleep(1_000)
+    assertEquals("the pane should stay where it was", screen, fixture.screen(paneId))
   }
 
   /** Pixels of [tag] drawn exactly in [rgb]. A run of full blocks in one colour gives thousands. */
@@ -202,6 +302,48 @@ class LiveScreenE2eTest {
       fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { s -> !s.contains("L300") && s.contains("L2") }
       swipe("terminal", -0.6f)
       fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { it.contains("L300") }
+    }
+  }
+
+  @Test
+  fun selectionGoesOverRowsWithoutScrolling() {
+    launchApp(compose, "selectionGoesOverRowsWithoutScrolling") { scenario ->
+      openPane(shell)
+      compose.waitUntilExactlyOneExists(hasTestTag("liveScreen"), 15_000)
+      awaitPaneFitsView(shell)
+      fixture.type(shell, "seq -f L%g 1 300")
+      val agentScreen = fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { it.contains("L300") }
+      Thread.sleep(500) // frames arrive as they are drawn
+      compose.waitForIdle()
+
+      // Vertical drags while selecting are termlib's, though they look like the swipe that scrolls: a finger moving
+      // on after a double tap, and a handle dragged down.
+      selectWords("liveScreen", shell, row = 12, rows = 4)
+      assertNotScrolled(shell, agentScreen)
+      Screens.take(compose, "04h-agent-selected")
+      assertCopiedRows(agentScreen, 12, copySelection())
+      selectWithHandle("liveScreen", shell, row = 3, rows = 5)
+      assertNotScrolled(shell, agentScreen)
+      assertCopiedRows(agentScreen, 3, copySelection())
+
+      compose.onNodeWithTag("openTerminal").performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("extraKeys"), 10_000)
+      compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("terminalOverlay")).fetchSemanticsNodes().isEmpty() }
+      // The keyboard comes up whenever termlib gets to it, and takes rows from the pane: bring it up first.
+      compose.onNodeWithTag("terminal").performClick()
+      compose.waitUntil(15_000) { keyboardShown(scenario) }
+      compose.idle(1_500)
+      awaitPaneFitsView(shell)
+      fixture.type(shell, "clear; seq -f T%g 1 300")
+      val terminalScreen = fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { it.contains("T300") }
+      Thread.sleep(500)
+      compose.waitForIdle()
+      selectWithHandle("terminal", shell, row = 3, rows = 5)
+      assertNotScrolled(shell, terminalScreen)
+      assertCopiedRows(terminalScreen, 3, copySelection())
+      // Copying ends the selection, and swipes scroll again.
+      swipe("terminal", 0.5f)
+      fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { !it.contains("T300") }
     }
   }
 

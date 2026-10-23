@@ -15,6 +15,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import org.connectbot.terminal.SelectionController
 
 /**
  * Vertical swipes over the pane scroll it the way the desktop's mouse wheel does, through [stream]: a row of history
@@ -24,9 +25,12 @@ import kotlinx.coroutines.launch
  * Taps, long-press selection and pinch zoom stay termlib's: a swipe is taken only once it is clearly vertical, with one
  * finger, before a long press. termlib gives up a gesture that an ancestor consumes, so the swipe is taken in the
  * initial pass, before termlib sees it.
+ *
+ * While text is selected in [selection] no swipe is taken. Dragging a handle down, or the finger after a double tap,
+ * looks just like one; and a scroll would leave the selection over other text, since herdr redraws the screen.
  */
-fun Modifier.wheelScroll(stream: PaneStream): Modifier =
-  pointerInput(stream) {
+fun Modifier.wheelScroll(stream: PaneStream, selection: TerminalSelection): Modifier =
+  pointerInput(stream, selection) {
     val decay = splineBasedDecay<Float>(this)
     coroutineScope {
       var fling: Job? = null
@@ -43,7 +47,8 @@ fun Modifier.wheelScroll(stream: PaneStream): Modifier =
           if (!change.pressed || event.changes.count { it.pressed } > 1 || change.uptimeMillis > longPressAt) return@awaitEachGesture
           pan += change.positionChange()
           if (pan.getDistance() > viewConfiguration.touchSlop) {
-            if (abs(pan.y) <= abs(pan.x)) return@awaitEachGesture
+            // termlib has had the down by now: a double tap starts its selection there.
+            if (abs(pan.y) <= abs(pan.x) || selection.active) return@awaitEachGesture
             change.consume()
             break
           }
@@ -83,3 +88,11 @@ fun Modifier.wheelScroll(stream: PaneStream): Modifier =
       }
     }
   }
+
+/** Whether termlib has text selected in a pane's terminal; it hands over [controller] once the terminal is composed. */
+class TerminalSelection {
+  var controller: SelectionController? = null
+
+  val active: Boolean
+    get() = controller?.isSelectionActive == true
+}
