@@ -25,7 +25,8 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 - Web links on the screen open in the phone's browser with a tap, on the agent screen and in the terminal.
 - Files: download a file the agent mentions on screen, such as a screenshot or an APK, and open it; send files from
   the phone to the machine.
-- Start an agent in a new tab or close a pane from the phone.
+- Start an agent from the phone: in a new tab next to another agent, or from the list in any folder of the machine,
+  in a session without panes too. Close a pane.
 - Several servers: a server is a host, a user and a herdr session.
 
 ## Requirements
@@ -53,9 +54,9 @@ when they match. Restart the server when the agents are idle.
 - The phone's SSH key is made on the phone and kept encrypted with an Android Keystore key that never leaves it. App
   backups are off.
 - A server's host key is pinned once you have compared its fingerprint; if it changes, the app stops connecting.
-- The app reads the screen and sends keys and prompts; it starts agents and closes panes only when you tap. It never
-  moves the focus on the desktop. On the host it reads files and writes only to `herdr-android` in the downloads
-  folder (`~/Downloads/herdr-android/` or its XDG counterpart).
+- The app reads the screen and sends keys and prompts; it starts agents, in a tab or a workspace of their own, and
+  closes panes only when you tap. It never moves the focus on the desktop. On the host it reads files and writes only
+  to `herdr-android` in the downloads folder (`~/Downloads/herdr-android/` or its XDG counterpart).
 
 ## Build
 

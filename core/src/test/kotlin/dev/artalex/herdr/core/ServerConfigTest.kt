@@ -3,6 +3,7 @@ package dev.artalex.herdr.core
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.servers.ServerList
 import dev.artalex.herdr.core.servers.withActive
+import dev.artalex.herdr.core.servers.withAgentFolder
 import dev.artalex.herdr.core.servers.withHostKey
 import dev.artalex.herdr.core.servers.withServer
 import dev.artalex.herdr.core.servers.without
@@ -48,7 +49,7 @@ class ServerConfigTest {
 
   @Test
   fun listRoundTripsAndUnreadableTextIsNoServers() {
-    val servers = listOf(node, ServerConfig(id = "b", name = "nas", host = "nas", port = 2222, user = "root", session = "x", active = false))
+    val servers = listOf(node.copy(agentFolder = "/home/dev/proj"), ServerConfig(id = "b", name = "nas", host = "nas", port = 2222, user = "root", session = "x", active = false))
     assertEquals(servers, ServerList.decode(ServerList.encode(servers)))
     assertEquals(emptyList(), ServerList.decode(null))
     assertEquals(emptyList(), ServerList.decode("{broken"))
@@ -72,24 +73,29 @@ class ServerConfigTest {
   }
 
   @Test
-  fun editKeepsHostKeyAndSwitchUnlessTheServerMoved() {
-    val servers = listOf(node.copy(active = false))
+  fun editKeepsHostKeySwitchAndAgentFolderUnlessTheServerMoved() {
+    val servers = listOf(node.copy(active = false, agentFolder = "/home/dev/proj"))
     // The form doesn't carry them: what the list has stays.
     val renamed = servers.withServer(node.copy(name = "узел", hostKey = null, active = true)).single()
     assertEquals("узел", renamed.name)
     assertEquals(key.encode(), renamed.hostKey)
     assertFalse(renamed.active)
+    assertEquals("/home/dev/proj", renamed.agentFolder)
     assertNull(servers.withServer(node.copy(host = "other")).single().hostKey)
     assertNull(servers.withServer(node.copy(port = 2222)).single().hostKey)
-    assertEquals(key.encode(), servers.withServer(node.copy(user = "root", session = "lab")).single().hostKey)
+    assertNull(servers.withServer(node.copy(host = "other")).single().agentFolder)
+    val sameMachine = servers.withServer(node.copy(user = "root", session = "lab")).single()
+    assertEquals(key.encode(), sameMachine.hostKey)
+    assertEquals("/home/dev/proj", sameMachine.agentFolder)
   }
 
   @Test
-  fun switchKeyAndDeleteTouchOnlyTheirServer() {
+  fun switchKeyFolderAndDeleteTouchOnlyTheirServer() {
     val other = ServerConfig(id = "b", host = "nas", user = "root")
     val servers = listOf(node, other)
     assertEquals(listOf(false, true), servers.withActive("a", false).map { it.active })
     assertEquals(listOf(null, key.encode()), servers.withHostKey("a", null).withHostKey("b", key).map { it.hostKey })
+    assertEquals(listOf(null, "/srv/notes"), servers.withAgentFolder("b", "/srv/notes").map { it.agentFolder })
     assertEquals(listOf(other), servers.without("a"))
   }
 

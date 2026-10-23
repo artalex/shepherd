@@ -28,6 +28,8 @@ data class ServerConfig(
   val session: String = DEFAULT_SESSION,
   val hostKey: String? = null,
   val active: Boolean = true,
+  /** The folder of the last agent started from the agent list, as the host resolved it; offered for the next one. */
+  val agentFolder: String? = null,
 ) {
   val isComplete: Boolean get() = host.isNotBlank() && user.isNotBlank() && port in 1..65535
 
@@ -83,15 +85,15 @@ object ServerList {
 }
 
 /**
- * Adds [server], or puts the form's fields into the server with its id. A server keeps its accepted host key and
- * whether it is on: those change through [withHostKey] and [withActive]. Moving it to another host or port forgets
- * the key, which belonged to the old machine.
+ * Adds [server], or puts the form's fields into the server with its id. A server keeps its accepted host key, whether
+ * it is on and its agent folder: those change through [withHostKey], [withActive] and [withAgentFolder]. Moving it to
+ * another host or port forgets the key and the folder, which belonged to the old machine.
  */
 fun List<ServerConfig>.withServer(server: ServerConfig): List<ServerConfig> {
   val form = server.trimmed()
   val old = firstOrNull { it.id == form.id } ?: return this + form
   val moved = old.host != form.host || old.port != form.port
-  val edited = form.copy(hostKey = if (moved) null else old.hostKey, active = old.active)
+  val edited = form.copy(hostKey = if (moved) null else old.hostKey, active = old.active, agentFolder = if (moved) null else old.agentFolder)
   return map { if (it.id == form.id) edited else it }
 }
 
@@ -100,3 +102,5 @@ fun List<ServerConfig>.without(id: String): List<ServerConfig> = filter { it.id 
 fun List<ServerConfig>.withActive(id: String, active: Boolean): List<ServerConfig> = map { if (it.id == id) it.copy(active = active) else it }
 
 fun List<ServerConfig>.withHostKey(id: String, key: HostKey?): List<ServerConfig> = map { if (it.id == id) it.copy(hostKey = key?.encode()) else it }
+
+fun List<ServerConfig>.withAgentFolder(id: String, folder: String): List<ServerConfig> = map { if (it.id == id) it.copy(agentFolder = folder) else it }

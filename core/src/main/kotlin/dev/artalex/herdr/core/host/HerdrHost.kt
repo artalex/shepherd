@@ -57,6 +57,18 @@ suspend fun HerdrTransport.uploadDir(timeoutMs: Long = 10_000): String {
 }
 
 /**
+ * The folder [path] names on the host, as herdr shows the folders of panes: absolute and with symlinks resolved. `~`,
+ * and a path that starts with `~/` or doesn't start with `/`, start in the remote home. Null if there is no such
+ * folder or it can't be entered.
+ */
+suspend fun HerdrTransport.resolveFolder(path: String, timeoutMs: Long = 10_000): String? {
+  val script = "d=${'$'}1; case ${'$'}d in \"~\") d=${'$'}HOME ;; \"~/\"*) d=${'$'}HOME/${'$'}{d#\"~/\"} ;; esac; cd -- \"${'$'}d\" 2>/dev/null && pwd -P"
+  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-c", script, "sh", path)) }
+  val (out, exitStatus) = blockingIoWithDeadline(stream, timeoutMs, "folder lookup") { stream.input.readAllBytes() to stream.exitStatus() }
+  return out.toString(Charsets.UTF_8).removeSuffix("\n").takeIf { exitStatus == 0 && it.startsWith("/") }
+}
+
+/**
  * Which [AgentKind] executables the host has. A login shell reads the profile, so PATH comes out as in the
  * desktop session herdr runs in, and as in its panes' shells.
  */

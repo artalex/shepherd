@@ -61,12 +61,15 @@ import kotlinx.coroutines.delay
 
 /**
  * Agents of every server, under the server's name and its switch. A server that is off shows only that line and
- * isn't connected; switching it on connects it, and a host key to accept is asked about right here.
+ * isn't connected; switching it on connects it, and a host key to accept is asked about right here. The + by a
+ * connected server's name starts an agent there, in a session without panes too, and shows it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentsScreen(viewModel: AgentsViewModel, onOpenPane: (serverId: String, paneId: String) -> Unit, onOpenSettings: () -> Unit, onAddServer: () -> Unit) {
   val sections by viewModel.sections.collectAsStateWithLifecycle()
+  val newAgent by viewModel.newAgent.collectAsStateWithLifecycle()
+  LaunchedEffect(viewModel) { viewModel.opened.collect { (serverId, paneId) -> onOpenPane(serverId, paneId) } }
   var refreshing by remember { mutableStateOf(false) }
   LaunchedEffect(refreshing) {
     if (refreshing) {
@@ -110,12 +113,13 @@ fun AgentsScreen(viewModel: AgentsViewModel, onOpenPane: (serverId: String, pane
       when {
         list == null -> Hint(stringResource(R.string.agents_loading))
         list.isEmpty() -> NoServers(onAddServer)
-        else -> ServerList(list, onOpenPane, toggle)
+        else -> ServerList(list, onOpenPane, toggle, viewModel::openNewAgent)
       }
     }
   }
 
   sections?.let { HostKeyDialog(it, onTrust = viewModel::trustHostKey, onDecline = { id -> viewModel.setActive(id, false) }) }
+  newAgent?.let { NewAgentDialog(it, onStart = viewModel::startNewAgent, onDismiss = viewModel::closeNewAgent) }
 }
 
 @Composable
@@ -140,12 +144,12 @@ private fun NoServers(onAddServer: () -> Unit) {
 }
 
 @Composable
-private fun ServerList(sections: List<ServerSection>, onOpenPane: (String, String) -> Unit, onToggle: (String, Boolean) -> Unit) {
+private fun ServerList(sections: List<ServerSection>, onOpenPane: (String, String) -> Unit, onToggle: (String, Boolean) -> Unit, onNewAgent: (String) -> Unit) {
   LazyColumn(Modifier.fillMaxSize().testTag("board")) {
     for (section in sections) {
       val id = section.config.id
       // The server's name stays in sight while its agents scroll by.
-      stickyHeader(key = "server-$id") { ServerHeader(section, onToggle) }
+      stickyHeader(key = "server-$id") { ServerHeader(section, onToggle, onNewAgent) }
       if (section.config.active) board(id, section, onOpenPane)
     }
   }
@@ -185,9 +189,12 @@ private fun LazyListScope.board(id: String, section: ServerSection, onOpenPane: 
 @Composable
 private fun HintText(text: String, color: Color = Color.Unspecified) = Text(text, color = color, modifier = Modifier.padding(16.dp))
 
-/** The server's name, how its connection is doing, and the switch that turns it on and off. */
+/**
+ * The server's name, how its connection is doing, and the switch that turns it on and off; once the server is
+ * connected, the + that starts an agent on it.
+ */
 @Composable
-private fun ServerHeader(section: ServerSection, onToggle: (String, Boolean) -> Unit) {
+private fun ServerHeader(section: ServerSection, onToggle: (String, Boolean) -> Unit, onNewAgent: (String) -> Unit) {
   val config = section.config
   Row(
     Modifier.fillMaxWidth()
@@ -202,6 +209,13 @@ private fun ServerHeader(section: ServerSection, onToggle: (String, Boolean) -> 
       serverStatus(section)?.let { (text, color) -> Text(text, style = MaterialTheme.typography.bodySmall, color = color) }
     }
     Spacer(Modifier.width(12.dp))
+    // A button of its own inside the switch's row: TalkBack reads it apart from the switch.
+    if (config.active && section.connection is ConnectionState.Connected) {
+      IconButton(onClick = { onNewAgent(config.id) }, modifier = Modifier.testTag("newAgent-${config.id}")) {
+        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.agents_new_agent))
+      }
+      Spacer(Modifier.width(4.dp))
+    }
     // The row does the toggling: one target, read by TalkBack as one switch with the server's name.
     Switch(checked = config.active, onCheckedChange = null)
   }

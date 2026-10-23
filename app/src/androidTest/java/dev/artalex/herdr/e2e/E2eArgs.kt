@@ -18,7 +18,10 @@ class E2eArgs private constructor(private val args: android.os.Bundle) {
   /** Another session on the same host, standing for a second server. */
   val session2: String get() = args.getString("herdrSession2")!!
 
-  /** A session whose server a test stops and starts again; no other test uses it. */
+  /**
+   * A session whose server a test stops and starts again. The test of an agent started from the list empties it
+   * first; no other test uses it.
+   */
   val sessionToStop: String get() = args.getString("herdrSessionToStop")!!
   val hostKeyFingerprint: String get() = args.getString("hostKeyFingerprint")!!
 

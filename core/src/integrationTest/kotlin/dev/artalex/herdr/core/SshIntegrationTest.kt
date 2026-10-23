@@ -5,6 +5,7 @@ import dev.artalex.herdr.core.host.BadSessionName
 import dev.artalex.herdr.core.host.HerdrNotFound
 import dev.artalex.herdr.core.host.HerdrStatusFailed
 import dev.artalex.herdr.core.host.check
+import dev.artalex.herdr.core.host.resolveFolder
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.ssh.SshConnection
 import dev.artalex.herdr.core.ssh.SshFailure
@@ -168,6 +169,33 @@ class SshIntegrationTest {
         }
         val uploads = discoverHerdrHost(connection, "~/.local/bin/herdr", server.session).uploadDir()
         assertTrue(uploads.startsWith("/") && uploads.endsWith("/herdr-android"), uploads)
+      }
+    } finally {
+      dir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun foldersAreLookedUpOnTheHost() = runBlocking {
+    // Under the home folder, for paths with ~ and paths relative to it; resolved, as herdr shows the folders of panes.
+    val home = File(System.getProperty("user.home")).canonicalFile
+    val dir = Files.createTempDirectory(Files.createDirectories(home.toPath().resolve(".cache")), "hfolder").toFile().canonicalFile
+    try {
+      val odd = File(dir, "it's a \"folder\"").also { it.mkdir() }
+      val link = File(dir, "link").also { Files.createSymbolicLink(it.toPath(), odd.toPath()) }
+      val file = File(dir, "notes.txt").also { it.writeText("") }
+      connected().use { connection ->
+        val transport = discoverHerdrHost(connection, "~/.local/bin/herdr", server.session).transport
+        val relative = dir.path.removePrefix("${home.path}/")
+        assertEquals(home.path, transport.resolveFolder("~"))
+        assertEquals(dir.path, transport.resolveFolder("~/$relative"))
+        assertEquals(dir.path, transport.resolveFolder(relative))
+        assertEquals(dir.path, transport.resolveFolder("${dir.path}/"))
+        assertEquals(odd.path, transport.resolveFolder(odd.path))
+        assertEquals(odd.path, transport.resolveFolder(link.path))
+        assertNull(transport.resolveFolder("${dir.path}/нет"))
+        assertNull(transport.resolveFolder(file.path))
+        assertNull(transport.resolveFolder("-P"))
       }
     } finally {
       dir.deleteRecursively()

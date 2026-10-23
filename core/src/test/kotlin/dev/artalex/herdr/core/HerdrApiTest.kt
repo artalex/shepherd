@@ -45,22 +45,28 @@ class HerdrApiTest {
   }
 
   @Test
-  fun opensTabsStartsAgentsAndClosesPanes() = runBlocking {
+  fun opensTabsAndWorkspacesStartsAgentsAndClosesPanes() = runBlocking {
     val transport = FakeTransport {
       when (it.method()) {
         "tab.create" ->
           ok(it, """{"type":"tab_created","tab":{"tab_id":"w1:t2","workspace_id":"w1","number":2},"root_pane":{"pane_id":"w1:p3","terminal_id":"term_3","workspace_id":"w1","tab_id":"w1:t2","cwd":"/home/u/proj"}}""")
+        "workspace.create" ->
+          ok(it, """{"type":"workspace_created","workspace":{"workspace_id":"w2","number":2,"label":"notes"},"tab":{"tab_id":"w2:t1","workspace_id":"w2","number":1},"root_pane":{"pane_id":"w2:p1","terminal_id":"term_4","workspace_id":"w2","tab_id":"w2:t1","cwd":"/home/u/notes"}}""")
         else -> ok(it, """{"type":"ok"}""")
       }
     }
     val api = HerdrApi(transport)
     val created = api.createTab("w1", "/home/u/proj")
+    val opened = api.createWorkspace("/home/u/notes")
     api.startAgent(created.paneId, "proj")
     api.closePane("w1:p1")
-    val (tab, start, close) = transport.requests.map { it.method() to it.getValue("params").jsonObject }
+    val (tab, workspace, start, close) = transport.requests.map { it.method() to it.getValue("params").jsonObject }
     assertEquals("w1:p3", created.paneId)
     assertEquals("tab.create", tab.first)
     assertEquals(listOf("w1", "/home/u/proj", "false"), listOf("workspace_id", "cwd", "focus").map { tab.second.getValue(it).jsonPrimitive.content })
+    assertEquals("w2:p1", opened.paneId)
+    assertEquals("workspace.create", workspace.first)
+    assertEquals(listOf("/home/u/notes", "false"), listOf("cwd", "focus").map { workspace.second.getValue(it).jsonPrimitive.content })
     assertEquals("agent.start", start.first)
     assertEquals(listOf("proj", "claude", "w1:p3"), listOf("name", "kind", "pane_id").map { start.second.getValue(it).jsonPrimitive.content })
     assertEquals("pane.close" to "w1:p1", close.first to close.second.getValue("pane_id").jsonPrimitive.content)
@@ -108,7 +114,7 @@ class HerdrApiTest {
   @Test
   fun methodsOutsideWhitelistAreRefusedBeforeConnecting() = runBlocking {
     val transport = FakeTransport { ok(it, "{}") }
-    for (method in listOf("pane.focus", "agent.focus", "server.stop", "workspace.create", "workspace.close", "tab.close", "pane.split")) {
+    for (method in listOf("pane.focus", "agent.focus", "server.stop", "workspace.focus", "workspace.close", "tab.close", "pane.split")) {
       assertFailsWith<IllegalArgumentException> { HerdrApi(transport).call(method) }
     }
     assertEquals(0, transport.requests.size)

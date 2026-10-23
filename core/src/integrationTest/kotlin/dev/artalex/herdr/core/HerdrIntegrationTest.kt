@@ -13,6 +13,7 @@ import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.store.buildBoard
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
+import dev.artalex.herdr.core.store.startSession
 import dev.artalex.herdr.core.terminal.CloseReason
 import dev.artalex.herdr.core.terminal.TerminalEvent
 import dev.artalex.herdr.core.terminal.TerminalSession
@@ -142,6 +143,26 @@ class HerdrIntegrationTest {
     waitForSnapshot { s -> s.panes.any { it.paneId == root && it.agent == "claude" } }
     api.closePane(created.paneId)
     waitForSnapshot { s -> s.panes.none { it.paneId == created.paneId } }
+  }
+
+  @Test
+  fun sessionGetsAWorkspaceOfItsOwnThenATabThere(): Unit = runBlocking {
+    val dir = Files.createDirectories(server.dir.resolve("session")).toString()
+    // No pane is in the folder yet: the agent opens a workspace there.
+    val first = api.startSession(dir, AgentKind.CLAUDE)
+    val started = waitForSnapshot { s -> s.panes.any { it.paneId == first && it.agent == "claude" } }
+    val pane = started.panes.first { it.paneId == first }
+    assertEquals(dir, pane.cwd)
+    assertEquals(listOf(first), started.panes.filter { it.workspaceId == pane.workspaceId }.map { it.paneId })
+    // The next one finds the first one's pane there and gets a tab next to it.
+    val second = api.startSession(dir, AgentKind.CLAUDE)
+    val both = waitForSnapshot { s -> s.panes.any { it.paneId == second && it.agent == "claude" } }
+    val next = both.panes.first { it.paneId == second }
+    assertEquals(pane.workspaceId, next.workspaceId)
+    assertTrue(next.tabId != pane.tabId, "the second agent should get its own tab")
+    api.closePane(second)
+    api.closePane(first)
+    waitForSnapshot { s -> s.panes.none { it.paneId == first || it.paneId == second } }
   }
 
   @Test

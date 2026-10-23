@@ -6,6 +6,7 @@ import dev.artalex.herdr.core.DEFAULT_SESSION
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.servers.ServerList
 import dev.artalex.herdr.core.servers.withActive
+import dev.artalex.herdr.core.servers.withAgentFolder
 import dev.artalex.herdr.core.servers.withHostKey
 import dev.artalex.herdr.core.servers.withServer
 import dev.artalex.herdr.core.servers.without
@@ -32,6 +33,8 @@ class ServerStore(private val context: Context) {
   fun setActive(id: String, active: Boolean) = change { it.withActive(id, active) }
 
   fun pinHostKey(id: String, key: HostKey?) = change { it.withHostKey(id, key) }
+
+  fun setAgentFolder(id: String, folder: String) = change { it.withAgentFolder(id, folder) }
 
   fun clear() = change { emptyList() }
 

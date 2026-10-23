@@ -11,6 +11,7 @@ import dev.artalex.herdr.core.store.agentName
 import dev.artalex.herdr.core.store.promptWhenReady
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
+import dev.artalex.herdr.core.store.startSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -73,6 +74,30 @@ class PanesTest {
     }
     HerdrApi(transport).startNamedAgentInNewPane("w1:p2", AgentKind.CLAUDE, "/home/u/proj")
     assertEquals(3, transport.requests.size)
+  }
+
+  @Test
+  fun sessionGetsATabWhereAPaneIsAndAWorkspaceOfItsOwnElsewhere() = runBlocking {
+    // An agent's pane in proj, started from a shell in the home folder; nothing in notes.
+    val snapshot =
+      """{"snapshot":{"version":"0.9.5","protocol":22,"workspaces":[{"workspace_id":"w1","number":1}],"panes":[{"pane_id":"w1:p1","terminal_id":"t1","workspace_id":"w1","tab_id":"w1:t1","cwd":"/home/u","foreground_cwd":"/home/u/proj"}]}}"""
+    val transport = FakeTransport {
+      when (it.method()) {
+        "session.snapshot" -> ok(it, snapshot)
+        "tab.create" -> ok(it, """{"type":"tab_created","root_pane":{"pane_id":"w1:p2","terminal_id":"t2","workspace_id":"w1","tab_id":"w1:t2"}}""")
+        "workspace.create" -> ok(it, """{"type":"workspace_created","root_pane":{"pane_id":"w2:p1","terminal_id":"t3","workspace_id":"w2","tab_id":"w2:t1"}}""")
+        else -> ok(it, """{"type":"ok"}""")
+      }
+    }
+    val api = HerdrApi(transport)
+    assertEquals("w1:p2", api.startSession("/home/u/proj", AgentKind.CLAUDE))
+    assertEquals("w2:p1", api.startSession("/home/u/notes", AgentKind.CODEX))
+    val calls = transport.requests.map { it.method() to it.getValue("params").jsonObject }
+    assertEquals(listOf("session.snapshot", "tab.create", "agent.start", "session.snapshot", "workspace.create", "agent.start"), calls.map { it.first })
+    assertEquals(listOf("w1", "/home/u/proj"), listOf("workspace_id", "cwd").map { calls[1].second.getValue(it).jsonPrimitive.content })
+    assertEquals("/home/u/notes", calls[4].second.getValue("cwd").jsonPrimitive.content)
+    assertEquals(listOf("proj", "claude", "w1:p2"), listOf("name", "kind", "pane_id").map { calls[2].second.getValue(it).jsonPrimitive.content })
+    assertEquals(listOf("notes", "codex", "w2:p1"), listOf("name", "kind", "pane_id").map { calls[5].second.getValue(it).jsonPrimitive.content })
   }
 
   private fun snapshot(status: AgentStatus, launching: Boolean = false) =

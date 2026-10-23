@@ -66,6 +66,18 @@ suspend fun HerdrApi.startNamedAgentInNewPane(paneId: String, kind: AgentKind, c
   }
 }
 
+/**
+ * Starts a [kind] agent in a tab of its own in [folder], a folder the host has (see `resolveFolder`): in the workspace
+ * of the first pane there, or in a workspace of its own when no pane is there, as in a session without panes. Returns
+ * the agent's pane.
+ */
+suspend fun HerdrApi.startSession(folder: String, kind: AgentKind): String {
+  val workspace = snapshot().panes.firstOrNull { (it.foregroundCwd ?: it.cwd) == folder }?.workspaceId
+  val pane = if (workspace != null) createTab(workspace, folder) else createWorkspace(folder)
+  startNamedAgentInNewPane(pane.paneId, kind, folder)
+  return pane.paneId
+}
+
 /** Whether the agent in [paneId] takes a prompt: it has started and neither works nor asks anything. */
 fun SessionSnapshot.agentReady(paneId: String): Boolean =
   agents.any { it.paneId == paneId && !it.launchPending && (it.agentStatus == AgentStatus.IDLE || it.agentStatus == AgentStatus.DONE) }

@@ -117,6 +117,18 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
   fun workspace(label: String): String =
     raw("workspace.create", buildJsonObject { put("label", label) }).getValue("root_pane").jsonObject.getValue("pane_id").jsonPrimitive.content
 
+  /** Closes every workspace of the session, with what runs in them: the session is left without panes. */
+  fun closeWorkspaces() {
+    // Listed afresh each time: closing a group takes its worktree workspaces along.
+    while (true) {
+      val workspace = raw("workspace.list").getValue("workspaces").jsonArray.firstOrNull() ?: return
+      raw("workspace.close", buildJsonObject {
+        put("workspace_id", workspace.jsonObject.getValue("workspace_id").jsonPrimitive.content)
+        put("close_group", true)
+      })
+    }
+  }
+
   fun split(paneId: String): String =
     raw("pane.split", buildJsonObject { put("target_pane_id", paneId); put("direction", "down") })
       .getValue("pane").jsonObject.getValue("pane_id").jsonPrimitive.content

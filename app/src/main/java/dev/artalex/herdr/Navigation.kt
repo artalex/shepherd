@@ -55,7 +55,7 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit) {
       entryProvider {
         entry<Agents> {
           AgentsScreen(
-            viewModel { AgentsViewModel(servers, container.notifications, container.alerts) },
+            viewModel { AgentsViewModel(servers, container.notifications, container.alerts, container.snippets) },
             onOpenPane = { serverId, paneId -> backStack.add(Agent(serverId, paneId)) },
             onOpenSettings = { backStack.add(Settings) },
             onAddServer = { backStack.add(ServerEditor(null)) },

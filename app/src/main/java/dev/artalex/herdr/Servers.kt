@@ -120,6 +120,9 @@ class Servers(
     if (!active) connection.disconnect() else if (_foreground.value) connection.connect()
   }
 
+  /** Remembers [folder] for the next agent started from the agent list on server [id]; the connection stays. */
+  fun setAgentFolder(id: String, folder: String) = store.setAgentFolder(id, folder)
+
   /** Deletes every server: the e2e tests start from scratch. */
   fun clear() {
     store.clear()

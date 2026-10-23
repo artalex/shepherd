@@ -29,7 +29,7 @@ internal val herdrJson = Json { ignoreUnknownKeys = true }
  * Typed client for the herdr socket API.
  *
  * Only the methods in [ALLOWED_METHODS] can be called: the app reads state, sends input, and when the user
- * asks opens tabs, starts agents and closes panes. It never moves focus on the desktop, creates or closes
+ * asks opens tabs and workspaces, starts agents and closes panes. It never moves focus on the desktop, closes
  * workspaces, or touches the server.
  */
 class HerdrApi(private val transport: HerdrTransport, private val timeoutMs: Long = DEFAULT_TIMEOUT_MS) {
@@ -92,6 +92,18 @@ class HerdrApi(private val transport: HerdrTransport, private val timeoutMs: Lon
   }
 
   /**
+   * Opens a workspace with a shell in [cwd], and the desktop stays on its own workspace. Returns the workspace's pane.
+   * herdr 0.9.5 opens a folder that doesn't exist, `~` paths included, as the home folder: [cwd] is to be one that does.
+   */
+  suspend fun createWorkspace(cwd: String): PaneInfo {
+    val params = buildJsonObject {
+      put("cwd", cwd)
+      put("focus", false)
+    }
+    return decode(call("workspace.create", params).jsonObject.getValue("root_pane"))
+  }
+
+  /**
    * Starts an interactive agent of [kind] named [name] in [paneId], which must be at a shell prompt.
    * herdr types the command and answers at once; the agent shows up in snapshots a few seconds later.
    * Fails with [ApiError] `agent_name_taken`, or `agent_pane_busy` when the pane runs something else.
@@ -146,6 +158,7 @@ class HerdrApi(private val transport: HerdrTransport, private val timeoutMs: Lon
         "agent.prompt",
         "pane.send_keys",
         "tab.create",
+        "workspace.create",
         "agent.start",
         "pane.close",
       )
