@@ -14,6 +14,7 @@ import dev.artalex.herdr.core.ssh.SshFailure
 import dev.artalex.herdr.core.ssh.SshTarget
 import dev.artalex.herdr.core.ssh.discoverHerdrHost
 import java.io.Closeable
+import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -50,12 +51,13 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
   /**
    * Makes this session the app's only server, [SERVER_ID], with the test key; see [addServer]. Notifications go off:
    * the watch after each test's activity would keep connections and poll into the next test. NotificationsE2eTest
-   * switches them on itself.
+   * switches them on itself. The files window starts on the files of its pane, as in a fresh app.
    */
   fun connectApp(container: AppContainer): Server {
     InstrumentationRegistry.getInstrumentation().runOnMainSync {
       container.servers.clear()
       container.notifications.setEnabled(false)
+      container.filesSettings.setWorkspace(false)
     }
     container.keys.store(e2e.key)
     return addServer(container, SERVER_ID)
@@ -92,6 +94,9 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
       stream.closeOutput()
       stream.input.readBytes().toString(Charsets.UTF_8)
     }
+
+  /** The SHA-256 of the file at [path] on the host, as [sha256] gives it for bytes on the phone. */
+  fun sha256(path: String): String = exec("sha256sum < '$path'").substringBefore(' ')
 
   /** Stops the session's herdr server, as `herdr server stop` on the host does; the session keeps its workspaces. */
   fun stopServer() {
@@ -256,3 +261,6 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
     private const val ECHO_PY = "import sys\nfor line in sys.stdin:\n    sys.stdout.write(line)\n    sys.stdout.flush()\n"
   }
 }
+
+/** The SHA-256 of [bytes] in hex, as sha256sum prints it. */
+fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

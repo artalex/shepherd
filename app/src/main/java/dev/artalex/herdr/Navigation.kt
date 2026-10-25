@@ -3,6 +3,7 @@ package dev.artalex.herdr
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.entryProvider
@@ -18,11 +19,17 @@ import dev.artalex.herdr.ui.settings.SettingsViewModel
 import dev.artalex.herdr.ui.terminal.TerminalScreen
 import dev.artalex.herdr.ui.terminal.TerminalViewModel
 
-/** The app's screens; [opening] is an agent to show over the list, from a tapped notification. */
+/**
+ * The app's screens; [opening] is an agent to show over the list, from a tapped notification. [share] came from another
+ * app: the list asks which agent it goes to, and [onShared] tells that it went to one or was dropped. [shareCount]
+ * counts the shares that came.
+ */
 @Composable
-fun MainNavigation(opening: Agent?, onOpened: () -> Unit) {
+fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCount: Int, onShared: () -> Unit) {
   val container = (LocalContext.current.applicationContext as HerdrApp).container
   val servers = container.servers
+  // The share as it is now: the list's callbacks may have been made before it came.
+  val currentShare = rememberUpdatedState(share)
   // A set-up app opens on the agent list; the first start goes to the form for a server.
   val backStack = rememberNavBackStack(if (servers.isEmpty()) ServerEditor(null) else Agents)
   val activity = LocalActivity.current
@@ -47,6 +54,8 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit) {
       onOpened()
     }
   }
+  // Each share starts on the agent list, as a notification does: the user picks its agent there.
+  LaunchedEffect(shareCount) { if (share != null) toAgents() }
 
   NavDisplay(
     backStack = backStack,
@@ -56,7 +65,16 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit) {
         entry<Agents> {
           AgentsScreen(
             viewModel { AgentsViewModel(servers, container.notifications, container.alerts, container.snippets) },
-            onOpenPane = { serverId, paneId -> backStack.add(Agent(serverId, paneId)) },
+            share = currentShare.value,
+            onOpenPane = { serverId, paneId ->
+              // The pane picked for a share gets it, a new agent started from the list too.
+              currentShare.value?.let { share ->
+                servers[serverId]?.let { share.sendTo(it, paneId) }
+                onShared()
+              }
+              backStack.add(Agent(serverId, paneId))
+            },
+            onDropShare = onShared,
             onOpenSettings = { backStack.add(Settings) },
             onAddServer = { backStack.add(ServerEditor(null)) },
           )
@@ -82,7 +100,7 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit) {
             // The user is looking at the agent: a notification about it has done its job.
             LaunchedEffect(key) { container.alerts.dismiss(key.serverId, key.paneId) }
             AgentScreen(
-              viewModel(key = "agent-${key.serverId}/${key.paneId}") { AgentViewModel(servers, server, key.paneId, container.snippets) },
+              viewModel(key = "agent-${key.serverId}/${key.paneId}") { AgentViewModel(servers, server, key.paneId, container.snippets, container.filesSettings) },
               onBack = back,
               onOpenTerminal = { backStack.add(Terminal(key.serverId, key.paneId)) },
               onSwitchPane = showPane,

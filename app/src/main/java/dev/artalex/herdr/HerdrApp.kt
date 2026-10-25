@@ -5,6 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.lifecycle.ProcessLifecycleOwner
 import dev.artalex.herdr.core.ssh.SshLog
+import dev.artalex.herdr.data.FilesSettings
 import dev.artalex.herdr.data.KeyVault
 import dev.artalex.herdr.data.NotificationSettings
 import dev.artalex.herdr.data.ServerStore
@@ -46,6 +47,7 @@ class AppContainer(app: Application) {
 
   val notifications = NotificationSettings(app)
   val snippets = SnippetStore(app)
+  val filesSettings = FilesSettings(app)
   val alerts = Alerts(app)
 
   // The watch gets every snapshot; it is made right after, and no snapshot comes before the app runs.

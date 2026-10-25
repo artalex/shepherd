@@ -204,6 +204,8 @@
     <string name="files_retry">Повторить</string>
     <string name="files_dismiss">Убрать</string>
     <string name="files_path_copied">Путь скопирован: %1$s</string>
+    <string name="files_scope_pane">Эта панель</string>
+    <string name="files_scope_workspace">Весь workspace</string>
     <string name="transfers_channel">Передача файлов</string>
     <string name="transfers_notification">Пастух передаёт файлы</string>
     <string-array name="file_size_units">
@@ -213,4 +215,9 @@
         <item>ГБ</item>
         <item>ТБ</item>
     </string-array>
+
+    <string name="share_title">Выберите агента</string>
+    <string name="share_drop">Не отправлять</string>
+    <string name="share_copied">Скопировано: вставьте в терминале</string>
+    <string name="share_not_sent">%1$s не отправлен: %2$s. Повторить можно в окне файлов.</string>
 </resources>

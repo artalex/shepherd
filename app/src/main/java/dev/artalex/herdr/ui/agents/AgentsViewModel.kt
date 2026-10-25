@@ -15,6 +15,7 @@ import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.store.Board
 import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.store.buildBoard
+import dev.artalex.herdr.core.store.lastSnapshot
 import dev.artalex.herdr.core.store.startSession
 import dev.artalex.herdr.data.NotificationSettings
 import dev.artalex.herdr.data.SnippetStore
@@ -201,15 +202,8 @@ class AgentsViewModel(
   private fun change(id: String, edit: (NewAgent) -> NewAgent) = _newAgent.update { form -> if (form?.serverId == id) edit(form) else form }
 
   /** The folders of the server's panes in its last snapshot, each once. */
-  private fun paneFolders(server: Server): List<String> {
-    val snapshot =
-      when (val state = server.sessions.state.value) {
-        SessionState.Loading -> null
-        is SessionState.Ready -> state.snapshot
-        is SessionState.Failed -> state.last?.snapshot
-      }
-    return snapshot?.panes.orEmpty().mapNotNull { it.foregroundCwd ?: it.cwd }.distinct()
-  }
+  private fun paneFolders(server: Server): List<String> =
+    server.sessions.state.value.lastSnapshot?.panes.orEmpty().mapNotNull { it.foregroundCwd ?: it.cwd }.distinct()
 
   private companion object {
     /** The remote home folder, as the folder field takes it. */

@@ -24,7 +24,9 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 - A full terminal for any pane.
 - Web links on the screen open in the phone's browser with a tap, on the agent screen and in the terminal.
 - Files: download a file the agent mentions on screen, such as a screenshot or an APK, and open it; send files from
-  the phone to the machine.
+  the phone to the machine. The files window lists the files of its pane or of the pane's whole workspace.
+- Share to Shepherd from any app: pick an agent, and shared text goes into its prompt, shared files go to the machine
+  with their paths after the text.
 - Start an agent from the phone: in a new tab next to another agent, or from the list in any folder of the machine,
   in a session without panes too. Close a pane.
 - Several servers: a server is a host, a user and a herdr session.

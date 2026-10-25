@@ -38,9 +38,10 @@ class FileShelf(initial: FileBook) {
    * as absent stays hidden but is checked again, so a file that turned up since joins the list. Folders never show.
    *
    * Then the rest of the list is checked: files get their current size and time, missing ones are marked gone.
-   * Checks go on after the window closes; their results only reach the list then.
+   * Checks go on after the window closes; their results only reach the list then. Files found are files of the pane
+   * of [origin], whose screen it is.
    */
-  suspend fun scan(screen: String, width: Int?, cwd: String?, files: RemoteFiles) {
+  suspend fun scan(screen: String, width: Int?, cwd: String?, files: RemoteFiles, origin: FileOrigin? = null) {
     val id = scans.incrementAndGet()
     val home = files.home
     _book.update { it.copy(home = home) }
@@ -67,7 +68,7 @@ class FileShelf(initial: FileBook) {
       items[i] =
         when {
           found is Lookup.File -> {
-            _book.update { it.seen(found.entry) }
+            _book.update { it.seen(found.entry, origin) }
             Item(item.paths, ScanEntry(found.entry.path, ScanState.FOUND, found.entry.path))
           }
           entry?.state == ScanState.FOUND -> {
@@ -95,13 +96,16 @@ class FileShelf(initial: FileBook) {
     _scan.value = null
   }
 
-  /** Adds the file at a path the user typed, relative to [cwd] unless it is absolute or starts with `~/`. */
-  suspend fun add(text: String, cwd: String?, files: RemoteFiles): AddResult {
+  /**
+   * Adds the file at a path the user typed in the files window of the pane of [origin], relative to [cwd] unless it is
+   * absolute or starts with `~/`.
+   */
+  suspend fun add(text: String, cwd: String?, files: RemoteFiles, origin: FileOrigin? = null): AddResult {
     val typed = text.trim().removeSurrounding("\"").removeSurrounding("'")
     val path = resolvePath(typed, files.home, cwd) ?: return AddResult.MISSING
     val entry = withContext(Dispatchers.IO) { files.stat(path) } ?: return AddResult.MISSING
     if (!entry.isFile) return AddResult.NOT_A_FILE
-    _book.update { it.copy(home = files.home).seen(entry) }
+    _book.update { it.copy(home = files.home).seen(entry, origin) }
     return AddResult.ADDED
   }
 
@@ -112,19 +116,17 @@ class FileShelf(initial: FileBook) {
   /** [file] went to the host whose home folder is [home]. */
   fun sent(file: SentFile, home: String) = _book.update { it.copy(home = home).sent(file) }
 
-  fun forget(path: String) {
-    _book.update { it.forget(path) }
+  fun forget(path: String) = forget(listOf(path))
+
+  /** The found files at [paths] leave the list, and the paths on the screen too. */
+  fun forget(paths: Collection<String>) {
+    _book.update { it.forget(paths) }
     _scan.update { it?.let(::visible) }
   }
 
-  fun forgetAll() {
-    _book.update { it.forgetAll() }
-    _scan.update { it?.let(::visible) }
-  }
+  fun forgetSent(path: String) = forgetSent(listOf(path))
 
-  fun forgetSent(path: String) = _book.update { it.forgetSent(path) }
-
-  fun forgetAllSent() = _book.update { it.forgetAllSent() }
+  fun forgetSent(paths: Collection<String>) = _book.update { it.forgetSent(paths) }
 
   /**
    * Found files the user has removed from the list don't show among the paths on the screen either; two paths on

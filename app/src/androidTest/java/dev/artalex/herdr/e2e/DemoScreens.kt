@@ -210,7 +210,7 @@ class DemoScreens {
       report(work, codex, "codex", "blocked")
       waitFor("notification") { notifications.activeNotifications.any { it.tag == Alerts.tag(WORK, codex) } }
       shade("08-notification")
-      app.startActivity(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+      app.startActivity(MainActivity.intent(app))
       waitFor("app on screen") { container.servers.foreground.value }
       // Its icon would stay in the status bar of the last shot.
       notifications.cancel(Alerts.tag(WORK, codex), Alerts.ALERT_ID)

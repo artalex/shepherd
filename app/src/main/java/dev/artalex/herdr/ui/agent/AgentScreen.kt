@@ -70,6 +70,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.artalex.herdr.PromptPart
 import dev.artalex.herdr.R
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.AgentStatus
@@ -131,6 +132,7 @@ fun AgentScreen(
   val closed by viewModel.paneClosed.collectAsStateWithLifecycle()
   val agents by viewModel.agents.collectAsStateWithLifecycle()
   val snippets by viewModel.snippets.collectAsStateWithLifecycle()
+  val filesWorkspace by viewModel.filesWorkspace.collectAsStateWithLifecycle()
   val snackbar = remember { SnackbarHostState() }
   val resources = LocalResources.current
   val openLink = rememberLinkOpener(snackbar)
@@ -159,6 +161,34 @@ fun AgentScreen(
     if (focusPrompt && !filesOpen) {
       focusPrompt = false
       runCatching { promptFocus.requestFocus() }
+    }
+  }
+  // A share's text and the paths of its files, as they come; only once the pane is known, so that an agent isn't taken
+  // for a shell. An agent gets them in the prompt at the cursor. A shell has no prompt field here: they go to the
+  // clipboard together, for its terminal to paste.
+  var forShell by remember { mutableStateOf(TextFieldValue()) }
+  val paneKnown = pane != null
+  val hasAgent = pane?.agent != null
+  LaunchedEffect(paneKnown, hasAgent) {
+    if (!paneKnown) return@LaunchedEffect
+    viewModel.inbox.collect { part ->
+      when {
+        part is PromptPart.Failed -> scope.launch { snackbar.showSnackbar(resources.getString(R.string.share_not_sent, part.name, part.error)) }
+        hasAgent -> {
+          prompt = prompt.with(part)
+          focusPrompt = true
+        }
+        else -> {
+          forShell = forShell.with(part)
+          val text = forShell.text.trimEnd()
+          context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(text, text))
+          scope.launch {
+            // One note for the whole share, not one after another for each of its parts.
+            snackbar.currentSnackbarData?.dismiss()
+            snackbar.showSnackbar(resources.getString(R.string.share_copied))
+          }
+        }
+      }
     }
   }
 
@@ -310,6 +340,9 @@ fun AgentScreen(
     FilesSheet(
       viewModel.files,
       cwd = viewModel.cwd,
+      origin = viewModel.origin,
+      workspace = filesWorkspace,
+      onWorkspace = viewModel::setFilesWorkspace,
       onInsertPath = { path ->
         if (pane?.agent != null) {
           prompt = prompt.withPath(path)
@@ -703,6 +736,17 @@ private fun typedChar(before: TextFieldValue, after: TextFieldValue): Char? {
 
 /** [path] put in at the cursor, with spaces from the words around it; in quotes if it has spaces of its own. */
 private fun TextFieldValue.withPath(path: String): TextFieldValue = withWord(if (path.any { it.isWhitespace() }) "\"$path\"" else path, spaceAtEnd = true)
+
+/** Shared [text] put in at the cursor, with spaces from the words around it: the paths of shared files may follow. */
+private fun TextFieldValue.withText(text: String): TextFieldValue = withWord(text, spaceAtEnd = true)
+
+/** A share's text or a shared file's path put in at the cursor; see [withText] and [withPath]. */
+private fun TextFieldValue.with(part: PromptPart): TextFieldValue =
+  when (part) {
+    is PromptPart.Text -> withText(part.text)
+    is PromptPart.Path -> withPath(part.path)
+    is PromptPart.Failed -> this
+  }
 
 /** [snippet] put in at the cursor, with spaces from the words around it; at the end of the text nothing follows it. */
 private fun TextFieldValue.withSnippet(snippet: String): TextFieldValue = withWord(snippet, spaceAtEnd = false)

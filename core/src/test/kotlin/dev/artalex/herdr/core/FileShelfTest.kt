@@ -2,7 +2,10 @@ package dev.artalex.herdr.core
 
 import dev.artalex.herdr.core.files.AddResult
 import dev.artalex.herdr.core.files.FileBook
+import dev.artalex.herdr.core.files.FileOrigin
+import dev.artalex.herdr.core.files.FileScope
 import dev.artalex.herdr.core.files.FileShelf
+import dev.artalex.herdr.core.files.FoundFile
 import dev.artalex.herdr.core.files.LocalCopy
 import dev.artalex.herdr.core.files.RemoteEntry
 import dev.artalex.herdr.core.files.RemoteFiles
@@ -61,6 +64,10 @@ class FileShelfTest {
   }
 
   private val screen = "Скриншот ~/shot.png\nсобрано: app/out.apk\nнет ~/missing.txt, папка ~/pics"
+
+  private val paneA = FileOrigin("term_a", "w1")
+  private val paneB = FileOrigin("term_b", "w1")
+  private val otherWorkspace = FileOrigin("term_c", "w2")
 
   private fun entries(shelf: FileShelf) = checkNotNull(shelf.scan.value).map { it.state to it.shown }
 
@@ -137,8 +144,50 @@ class FileShelfTest {
     shelf.forget(shot.path)
     assertEquals(listOf(ScanState.FOUND to apk.path, ScanState.MISSING to "${home.path}/missing.txt"), entries(shelf))
     assertEquals(listOf(apk.path), shelf.book.value.found.map { it.path })
-    shelf.forgetAll()
+    shelf.forget(listOf(apk.path))
     assertEquals(listOf(ScanState.MISSING to "${home.path}/missing.txt"), entries(shelf))
+  }
+
+  @Test
+  fun filesRememberThePanesTheyCameUpIn() = runBlocking {
+    val shelf = FileShelf(FileBook())
+    shelf.scan("~/shot.png", null, project.path, LocalFiles(), paneA)
+    shelf.scan("~/shot.png app/out.apk", null, project.path, LocalFiles(), paneB)
+    assertEquals(AddResult.ADDED, shelf.add("app/out.apk", project.path, LocalFiles(), paneA))
+    val found = shelf.book.value.found.associateBy { it.path }
+    assertEquals(listOf(paneB, paneA), found.getValue(shot.path).origins)
+    assertEquals(listOf(paneA, paneB), found.getValue(apk.path).origins)
+    shelf.sent(SentFile("/h/Downloads/herdr-android/c.jpg", 5, paneB), home.path)
+    assertEquals(paneB, shelf.book.value.sent.single().origin)
+  }
+
+  @Test
+  fun theWindowListsThePaneOrItsWorkspace() {
+    val ofA = FoundFile("/h/a", 1, 1, origins = listOf(paneA))
+    val ofBoth = FoundFile("/h/ab", 1, 1, origins = listOf(paneB, paneA))
+    val elsewhere = FoundFile("/h/c", 1, 1, origins = listOf(otherWorkspace))
+    val unknown = FoundFile("/h/old", 1, 1)
+    fun listed(scope: FileScope) = listOf(ofA, ofBoth, elsewhere, unknown).filter(scope::has).map { it.path }
+    assertEquals(listOf("/h/ab"), listed(FileScope(paneB, workspace = false)))
+    assertEquals(listOf("/h/a", "/h/ab", "/h/old"), listed(FileScope(paneB, workspace = true)))
+    assertEquals(listOf("/h/c", "/h/old"), listed(FileScope(otherWorkspace, workspace = true)))
+    assertTrue(FileScope(paneA, workspace = false).has(SentFile("/h/s", 1, paneA)))
+    assertFalse(FileScope(paneB, workspace = false).has(SentFile("/h/s", 1, paneA)))
+    assertFalse(FileScope(paneB, workspace = false).has(SentFile("/h/s", 1)))
+    assertTrue(FileScope(paneB, workspace = true).has(SentFile("/h/s", 1)))
+  }
+
+  @Test
+  fun clearingTakesOnlyTheFilesShown() {
+    val book =
+      FileBook()
+        .seen(RemoteEntry("/h/a", 1, 1, true), paneA)
+        .seen(RemoteEntry("/h/b", 1, 1, true), paneB)
+        .sent(SentFile("/h/s1", 1, paneA))
+        .sent(SentFile("/h/s2", 1, paneB))
+    val cleared = book.forget(listOf("/h/a")).forgetSent(listOf("/h/s1"))
+    assertEquals(listOf("/h/b"), cleared.found.map { it.path })
+    assertEquals(listOf("/h/s2"), cleared.sent.map { it.path })
   }
 
   @Test
@@ -165,10 +214,14 @@ class FileShelfTest {
     // Seen again: to the top, with its copy.
     book = book.seen(entry.copy(size = 11))
     assertEquals("content://x/1", book.found.first().copy?.uri)
-    book = book.sent(SentFile("/h/Downloads/herdr-android/c.jpg", 5))
+    book = book.seen(RemoteEntry("/h/b.png", 1, 1, true), paneA).sent(SentFile("/h/Downloads/herdr-android/c.jpg", 5, paneB))
     assertEquals(book, FileBook.decode(book.encode()))
     assertEquals(FileBook(), FileBook.decode("{не json"))
     assertEquals(FileBook(), FileBook.decode(null))
+    // Lists saved before files had origins read as files of no pane.
+    val old = FileBook.decode("""{"found":[{"path":"/h/a.png","size":10,"mtime":100}],"sent":[{"path":"/h/c.jpg","size":5}]}""")
+    assertEquals(emptyList(), old.found.single().origins)
+    assertNull(old.sent.single().origin)
   }
 
   @Test

@@ -2,7 +2,6 @@ package dev.artalex.herdr.e2e
 
 import android.app.Notification
 import android.app.NotificationManager
-import android.content.Intent
 import android.service.notification.StatusBarNotification
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
@@ -110,9 +109,7 @@ class NotificationsE2eTest {
 
   /** Brings the app back as its launcher icon would, without opening an agent. */
   private fun backToApp() {
-    context.startActivity(
-      Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-    )
+    context.startActivity(MainActivity.intent(context))
     waitFor("app on screen") { container.servers.foreground.value }
   }
 

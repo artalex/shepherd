@@ -6,11 +6,13 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import dev.artalex.herdr.PromptPart
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.core.files.AddResult
 import dev.artalex.herdr.core.files.FileBook
+import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.files.FileShelf
 import dev.artalex.herdr.core.files.FoundFile
 import dev.artalex.herdr.core.files.LocalCopy
@@ -51,8 +53,12 @@ data class Transfer(val done: Long, val total: Long?, val error: String? = null)
     get() = total?.takeIf { it > 0 }?.let { (done * 100 / it).toInt().coerceIn(0, 100) } ?: 0
 }
 
-/** A file on its way from the phone ([uri]) to the host, or one that didn't get there. */
-data class Upload(val id: Long, val uri: Uri, val name: String, val size: Long?, val transfer: Transfer)
+/**
+ * A file on its way from the phone ([uri]) to the host, or one that didn't get there; [origin] is the pane it is sent
+ * from or shared to. A shared file goes to the prompt of pane [forPane] too: its path once it is on the host, or that
+ * it didn't get there.
+ */
+data class Upload(val id: Long, val uri: Uri, val name: String, val size: Long?, val transfer: Transfer, val origin: FileOrigin? = null, val forPane: String? = null)
 
 /** A downloaded file to show: [uri] on the phone, opened as [type]. */
 data class Opening(val uri: Uri, val type: String, val name: String)
@@ -107,14 +113,14 @@ class FileTransfers(private val app: Application, private val server: Server, pr
   }
 
   /** Finds the paths on [paneId]'s screen and checks them on the host; see [FileShelf.scan]. */
-  fun scan(paneId: String, width: Int?, cwd: String?) {
+  fun scan(paneId: String, width: Int?, cwd: String?, origin: FileOrigin?) {
     scanJob?.cancel()
     scanJob =
       scope.launch {
         try {
           val host = server.host ?: throw IOException("not connected")
           val screen = host.api.readPane(paneId, ansi = false).text
-          withContext(Dispatchers.IO) { host.openFiles() }.use { files -> shelf.scan(screen, width, cwd, files) }
+          withContext(Dispatchers.IO) { host.openFiles() }.use { files -> shelf.scan(screen, width, cwd, files, origin) }
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {
@@ -127,10 +133,10 @@ class FileTransfers(private val app: Application, private val server: Server, pr
   /** The window closed; checks still running finish quietly. */
   fun closeScan() = shelf.closeScan()
 
-  /** Adds the file at a typed path; null without a connection. */
-  suspend fun add(text: String, cwd: String?): AddResult? {
+  /** Adds the file at a path typed in the files window of the pane of [origin]; null without a connection. */
+  suspend fun add(text: String, cwd: String?, origin: FileOrigin?): AddResult? {
     val host = server.host ?: return null
-    return withContext(Dispatchers.IO) { host.openFiles() }.use { shelf.add(text, cwd, it) }
+    return withContext(Dispatchers.IO) { host.openFiles() }.use { shelf.add(text, cwd, it, origin) }
   }
 
   /** Shows [file]: the copy on the phone if it is the current version, or downloads it first. */
@@ -147,12 +153,12 @@ class FileTransfers(private val app: Application, private val server: Server, pr
     jobs[downloadKey(path)]?.cancel()
   }
 
-  /** Sends the files the user picked to the host, each on its own. */
-  fun upload(uris: List<Uri>) {
+  /** Sends the files the user picked or shared to the host, each on its own; see [Upload]. */
+  fun upload(uris: List<Uri>, origin: FileOrigin?, forPane: String? = null) {
     for (uri in uris) {
       scope.launch {
         val (name, size) = withContext(Dispatchers.IO) { pickedFile(resolver, uri) }
-        send(Upload(ids.incrementAndGet(), uri, name, size, Transfer(0, size)))
+        send(Upload(ids.incrementAndGet(), uri, name, size, Transfer(0, size), origin, forPane))
       }
     }
   }
@@ -233,19 +239,23 @@ class FileTransfers(private val app: Application, private val server: Server, pr
     _uploads.update { list -> listOf(item.copy(transfer = Transfer(0, item.size))) + list.filter { it.id != item.id } }
     launchTransfer(uploadKey(item.id)) {
       try {
-        transfer { host -> withContext(Dispatchers.IO) { put(host, shelf, item) } }
+        val path = transfer { host -> withContext(Dispatchers.IO) { put(host, shelf, item) } }
         dismiss(item)
+        item.forPane?.let { server.inbox.put(it, PromptPart.Path(path)) }
       } catch (e: CancellationException) {
         dismiss(item)
         throw e
       } catch (e: Exception) {
         Log.w(TAG, "upload of ${item.name} failed: ${e.message}")
-        _uploads.update { list -> list.map { if (it.id == item.id) it.copy(transfer = it.transfer.copy(error = e.message ?: e.javaClass.simpleName)) else it } }
+        val error = e.message ?: e.javaClass.simpleName
+        _uploads.update { list -> list.map { if (it.id == item.id) it.copy(transfer = it.transfer.copy(error = error)) else it } }
+        item.forPane?.let { server.inbox.put(it, PromptPart.Failed(item.name, error)) }
       }
     }
   }
 
-  private suspend fun put(host: HerdrHost, shelf: FileShelf, item: Upload) {
+  /** Sends [item] to the host and returns its path there. */
+  private suspend fun put(host: HerdrHost, shelf: FileShelf, item: Upload): String {
     val job = currentCoroutineContext().job
     val override = uploadDirOverride
     val dir = override ?: host.uploadDir()
@@ -260,7 +270,9 @@ class FileTransfers(private val app: Application, private val server: Server, pr
             job.isActive
           }
         }
-      shelf.sent(SentFile(path, item.size ?: sent), files.home)
+      // A share to an agent just started may come before a snapshot has its pane.
+      shelf.sent(SentFile(path, item.size ?: sent, item.origin ?: item.forPane?.let(server::originOf)), files.home)
+      return path
     }
   }
 

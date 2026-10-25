@@ -131,7 +131,7 @@ class LinksE2eTest {
 
   @Test
   fun linksOpenFromTheAgentScreenAndTheTerminal() {
-    launchApp(compose, "linksOpenFromTheAgentScreenAndTheTerminal") {
+    launchApp(compose, "linksOpenFromTheAgentScreenAndTheTerminal") { scenario ->
       openPane(shell)
       compose.waitUntilExactlyOneExists(hasTestTag("liveScreen"), 15_000)
       var cols = paneCols(shell)
@@ -153,6 +153,8 @@ class LinksE2eTest {
       compose.onNodeWithTag("openTerminal").performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("extraKeys"), 10_000)
       compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("terminalOverlay")).fetchSemanticsNodes().isEmpty() }
+      // Up later by itself, the keyboard would redraw the pane under the tap.
+      compose.raiseTerminalKeyboard(scenario, fixture, server, shell)
       cols = paneCols(shell)
       long = longLink(cols, "terminal")
       runOnScreen(shell, "printf '%s\\n' '$long'")

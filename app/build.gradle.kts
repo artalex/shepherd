@@ -26,8 +26,8 @@ android {
         applicationId = "dev.artalex.herdr"
         minSdk = 33
         targetSdk = 37
-        versionCode = 26
-        versionName = "2.15"
+        versionCode = 29
+        versionName = "2.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

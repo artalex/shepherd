@@ -44,6 +44,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- The app in the share menu: text for an agent's prompt, files for the host. It has no window and hands the
+             share to MainActivity in the app's own task; a task of its own, when a sharing app asks for one, stays
+             out of the recent apps. -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".files.TransferService"
             android:exported="false"

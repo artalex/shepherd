@@ -35,11 +35,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -76,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
 import dev.artalex.herdr.core.files.AddResult
+import dev.artalex.herdr.core.files.FileOrigin
+import dev.artalex.herdr.core.files.FileScope
 import dev.artalex.herdr.core.files.FileShelf
 import dev.artalex.herdr.core.files.FoundFile
 import dev.artalex.herdr.core.files.ScanEntry
@@ -95,11 +101,20 @@ import kotlinx.coroutines.launch
 /**
  * The files window of the agent screen. "Incoming": files whose paths are on the screen and those found before;
  * a tap downloads one and opens it. "Outgoing": files sent from the phone; a tap gives [onInsertPath] the path on
- * the host. Paths relative to the agent's folder start in [cwd].
+ * the host. Paths relative to the agent's folder start in [cwd]. Both list the files of the pane of [origin], or with
+ * [workspace] those of its whole workspace; [onWorkspace] switches.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesSheet(files: FileTransfers, cwd: String?, onInsertPath: (String) -> Unit, onDismiss: () -> Unit) {
+fun FilesSheet(
+  files: FileTransfers,
+  cwd: String?,
+  origin: FileOrigin?,
+  workspace: Boolean,
+  onWorkspace: (Boolean) -> Unit,
+  onInsertPath: (String) -> Unit,
+  onDismiss: () -> Unit,
+) {
   val shelf = files.shelf
   val book by shelf.book.collectAsStateWithLifecycle()
   val scan by shelf.scan.collectAsStateWithLifecycle()
@@ -116,7 +131,12 @@ fun FilesSheet(files: FileTransfers, cwd: String?, onInsertPath: (String) -> Uni
     launch { files.messages.collect { snackbar.showSnackbar(resources.getString(it.text, it.arg)) } }
     files.openings.collect { if (!view(context, it)) snackbar.showSnackbar(resources.getString(R.string.files_no_viewer, it.name)) }
   }
-  val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> files.upload(uris) }
+  val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> files.upload(uris, origin) }
+  // Until the pane is known, everything shows.
+  val fileScope = origin?.let { FileScope(it, workspace) }
+  val listed = book.found.filter { fileScope?.has(it) ?: true }
+  val sentListed = book.sent.filter { fileScope?.has(it) ?: true }
+  val uploadsListed = uploads.filter { fileScope?.has(listOfNotNull(it.origin)) ?: true }
   val dismiss = {
     files.closeScan()
     onDismiss()
@@ -129,10 +149,11 @@ fun FilesSheet(files: FileTransfers, cwd: String?, onInsertPath: (String) -> Uni
           Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.files_incoming)) }, modifier = Modifier.testTag("tab-incoming"))
           Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.files_outgoing)) }, modifier = Modifier.testTag("tab-outgoing"))
         }
+        if (origin != null) ScopeSwitch(workspace, onWorkspace)
         if (tab == 0) {
           LazyColumn(Modifier.fillMaxWidth().testTag("incoming")) {
-            item { PathField { files.add(it, cwd) } }
-            incoming(shelf, scan, book.found, downloads, book.home, files, onClear = { confirmClear = 0 })
+            item { PathField { files.add(it, cwd, origin) } }
+            incoming(shelf, scan, book.found, listed, downloads, book.home, files, onClear = { confirmClear = 0 })
           }
         } else {
           LazyColumn(Modifier.fillMaxWidth().testTag("outgoing")) {
@@ -142,10 +163,10 @@ fun FilesSheet(files: FileTransfers, cwd: String?, onInsertPath: (String) -> Uni
                 Text(stringResource(R.string.files_send), Modifier.padding(start = 8.dp))
               }
             }
-            items(uploads, key = { "upload-${it.id}" }) { upload ->
+            items(uploadsListed, key = { "upload-${it.id}" }) { upload ->
               UploadRow(upload, onCancel = { files.cancel(upload) }, onRetry = { files.retry(upload) }, onDismiss = { files.dismiss(upload) })
             }
-            items(book.sent, key = { "sent-${it.path}" }) { sent ->
+            items(sentListed, key = { "sent-${it.path}" }) { sent ->
               Swipeable(onForget = { shelf.forgetSent(sent.path) }) {
                 FileRow(
                   name = sent.path.substringAfterLast('/'),
@@ -160,8 +181,8 @@ fun FilesSheet(files: FileTransfers, cwd: String?, onInsertPath: (String) -> Uni
                 )
               }
             }
-            if (book.sent.isNotEmpty()) item { ClearButton { confirmClear = 1 } }
-            if (uploads.isEmpty() && book.sent.isEmpty()) item { Note(stringResource(R.string.files_outgoing_empty)) }
+            if (sentListed.isNotEmpty()) item { ClearButton { confirmClear = 1 } }
+            if (uploadsListed.isEmpty() && sentListed.isEmpty()) item { Note(stringResource(R.string.files_outgoing_empty)) }
           }
         }
       }
@@ -179,7 +200,8 @@ fun FilesSheet(files: FileTransfers, cwd: String?, onInsertPath: (String) -> Uni
       confirmButton = {
         TextButton(
           onClick = {
-            if (which == 0) shelf.forgetAll() else shelf.forgetAllSent()
+            // Only the files the window shows: those of other panes stay.
+            if (which == 0) shelf.forget(listed.map { it.path }) else shelf.forgetSent(sentListed.map { it.path })
             confirmClear = null
           },
           modifier = Modifier.testTag("confirmClear"),
@@ -192,11 +214,16 @@ fun FilesSheet(files: FileTransfers, cwd: String?, onInsertPath: (String) -> Uni
   }
 }
 
-/** The paths on the screen at this opening of the window, then the files found before. */
+/**
+ * The paths on the screen at this opening of the window, then the files found before: those [listed] for the pane or
+ * its workspace, of all the server's [found] files. In both, what the host doesn't have goes after the rest, faded:
+ * there is nothing to download.
+ */
 private fun LazyListScope.incoming(
   shelf: FileShelf,
   scan: List<ScanEntry>?,
   found: List<FoundFile>,
+  listed: List<FoundFile>,
   downloads: Map<String, Transfer>,
   home: String?,
   files: FileTransfers,
@@ -212,7 +239,9 @@ private fun LazyListScope.incoming(
   if (scan != null) {
     item { Header(R.string.files_on_screen) }
     if (scan.isEmpty()) item { Note(stringResource(R.string.files_none_on_screen)) }
-    items(scan, key = { "scan-" + (it.path ?: it.shown) }) { entry ->
+    // Paths not found and files gone since they were found go last, in the screen's order like the rest.
+    val shown = scan.sortedBy { it.state == ScanState.MISSING || byPath[it.path]?.gone == true }
+    items(shown, key = { "scan-" + (it.path ?: it.shown) }) { entry ->
       when (entry.state) {
         ScanState.FOUND -> byPath[entry.path]?.let { found(it) }
         ScanState.CHECKING -> PathRow(entry.shown, home, stringResource(R.string.files_checking), checking = true)
@@ -221,13 +250,31 @@ private fun LazyListScope.incoming(
     }
   }
   val onScreen = scan.orEmpty().mapNotNullTo(HashSet()) { it.path }
-  val earlier = found.filter { it.path !in onScreen }
+  val earlier = listed.filter { it.path !in onScreen }.sortedBy { it.gone }
   if (earlier.isNotEmpty()) {
     if (scan != null) item { Header(R.string.files_earlier) }
     items(earlier, key = { "found-${it.path}" }) { found(it) }
   }
-  if (found.isNotEmpty()) item { ClearButton(onClear) }
-  if (scan.isNullOrEmpty() && found.isEmpty()) item { Note(stringResource(R.string.files_incoming_empty)) }
+  if (listed.isNotEmpty()) item { ClearButton(onClear) }
+  if (scan.isNullOrEmpty() && listed.isEmpty()) item { Note(stringResource(R.string.files_incoming_empty)) }
+}
+
+/** The files of the window's pane, or of the pane's whole workspace. */
+@Composable
+private fun ScopeSwitch(workspace: Boolean, onChange: (Boolean) -> Unit) {
+  SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    val choices = listOf(false to R.string.files_scope_pane, true to R.string.files_scope_workspace)
+    choices.forEachIndexed { i, (whole, label) ->
+      SegmentedButton(
+        selected = whole == workspace,
+        onClick = { onChange(whole) },
+        shape = SegmentedButtonDefaults.itemShape(i, choices.size),
+        modifier = Modifier.testTag(if (whole) "scope-workspace" else "scope-pane"),
+      ) {
+        Text(stringResource(label))
+      }
+    }
+  }
 }
 
 /** A path typed by hand, for what the screen doesn't show as a path: one with spaces, say. */
@@ -301,6 +348,7 @@ private fun FoundRow(file: FoundFile, transfer: Transfer?, home: String?, onOpen
     details = listOfNotNull(shortDir(file.path, home), sizeText(file.size), timeText(file.mtime), status).joinToString(" · "),
     tag = "found-${file.path}",
     onClick = onOpen,
+    faded = file.gone,
   ) {
     when {
       transfer != null && transfer.error == null ->
@@ -318,7 +366,7 @@ private fun FoundRow(file: FoundFile, transfer: Transfer?, home: String?, onOpen
 /** A path from the screen that isn't a known file: being checked, or not found. */
 @Composable
 private fun PathRow(path: String, home: String?, status: String, checking: Boolean) =
-  FileRow(name = path.substringAfterLast('/'), details = listOfNotNull(shortDir(path, home), status).joinToString(" · "), tag = "path-$path", onClick = null) {
+  FileRow(name = path.substringAfterLast('/'), details = listOfNotNull(shortDir(path, home), status).joinToString(" · "), tag = "path-$path", onClick = null, faded = !checking) {
     if (checking) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
   }
 
@@ -344,12 +392,23 @@ private fun UploadRow(upload: Upload, onCancel: () -> Unit, onRetry: () -> Unit,
   }
 }
 
+/** A file's row; [faded] for a file the host doesn't have. */
 @Composable
-private fun FileRow(name: String, details: String, tag: String, onClick: (() -> Unit)?, trailing: @Composable () -> Unit = {}) =
+private fun FileRow(name: String, details: String, tag: String, onClick: (() -> Unit)?, faded: Boolean = false, trailing: @Composable () -> Unit = {}) =
   ListItem(
     headlineContent = { Text(name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) },
     supportingContent = { Text(details, maxLines = 2, overflow = TextOverflow.Ellipsis) },
     trailingContent = trailing,
+    // The text only: the row stays opaque over the red of a swipe.
+    colors =
+      if (faded) {
+        ListItemDefaults.colors(
+          headlineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = FADED),
+          supportingColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = FADED),
+        )
+      } else {
+        ListItemDefaults.colors()
+      },
     // One node for the whole row, clickable or not: TalkBack reads it at once, tests find its text by its tag.
     modifier = (if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier.semantics(mergeDescendants = true) {}).testTag(tag),
   )
@@ -435,3 +494,6 @@ internal fun timeText(mtime: Long): String {
     }
   return DateUtils.formatDateTime(LocalContext.current, mtime * 1000, flags)
 }
+
+/** The alpha Material gives content that can't be used. */
+private const val FADED = 0.38f

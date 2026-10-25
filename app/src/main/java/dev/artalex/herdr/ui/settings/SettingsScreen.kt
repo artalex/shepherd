@@ -2,6 +2,7 @@ package dev.artalex.herdr.ui.settings
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.clickable
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
+import dev.artalex.herdr.ShareActivity
 import dev.artalex.herdr.core.ssh.SshKeyPair
 
 /**
@@ -103,7 +105,9 @@ internal fun KeySection(key: SshKeyPair?, onGenerate: () -> Unit) {
     }) { Text(stringResource(R.string.key_copy)) }
     OutlinedButton(onClick = {
       val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, key.publicKeyLine)
-      context.startActivity(Intent.createChooser(send, null))
+      // The key goes to another app: the share menu leaves out this app's own entry, which puts text into a prompt.
+      val chooser = Intent.createChooser(send, null).putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(ComponentName(context, ShareActivity::class.java)))
+      context.startActivity(chooser)
     }) { Text(stringResource(R.string.key_share)) }
   }
 }

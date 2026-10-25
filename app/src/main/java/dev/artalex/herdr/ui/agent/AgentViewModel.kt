@@ -2,10 +2,12 @@ package dev.artalex.herdr.ui.agent
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.artalex.herdr.PromptPart
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.Servers
 import dev.artalex.herdr.StartPromptsFailure
+import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.rpc.ApiError
@@ -19,6 +21,7 @@ import dev.artalex.herdr.core.store.buildBoard
 import dev.artalex.herdr.core.store.paneGrid
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
+import dev.artalex.herdr.data.FilesSettings
 import dev.artalex.herdr.data.SnippetStore
 import dev.artalex.herdr.ui.terminal.TerminalPhase
 import kotlin.coroutines.cancellation.CancellationException
@@ -57,7 +60,13 @@ data class ServerBoard(val serverId: String, val title: String, val board: Board
 
 /** The screen of pane [paneId] on [server]. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AgentViewModel(servers: Servers, val server: Server, val paneId: String, private val snippetStore: SnippetStore) : ViewModel() {
+class AgentViewModel(
+  servers: Servers,
+  val server: Server,
+  val paneId: String,
+  private val snippetStore: SnippetStore,
+  private val filesSettings: FilesSettings,
+) : ViewModel() {
   /** The pane at the phone's size, shared with its terminal screen. */
   val stream = server.streams.of(paneId)
 
@@ -238,15 +247,27 @@ class AgentViewModel(servers: Servers, val server: Server, val paneId: String, p
   /** Files between the phone and the host, for the files window. */
   val files = server.files
 
+  /** Shared text and files for the prompt, as they come; see [dev.artalex.herdr.PromptInbox]. */
+  val inbox: Flow<PromptPart> = server.inbox.of(paneId)
+
   /** The agent's folder, where relative paths on its screen start. */
   val cwd: String?
     get() = pane.value?.pane?.let { it.foregroundCwd ?: it.cwd }
+
+  /** Where the files of this pane come from: its terminal and workspace, once the pane is known. */
+  val origin: FileOrigin?
+    get() = pane.value?.pane?.let { FileOrigin(it.terminalId, it.workspaceId) }
+
+  /** The files window lists the files of the whole workspace rather than of this pane; see [FilesSettings]. */
+  val filesWorkspace: StateFlow<Boolean> = filesSettings.workspace
+
+  fun setFilesWorkspace(on: Boolean) = filesSettings.setWorkspace(on)
 
   /** The files window opens: the paths on the pane's screen as it is now are looked up on the host. */
   fun scanFiles() {
     // The live stream gives the pane the phone's width; a snapshot shows it at the width of whoever controls it.
     val width = if (stream.phase.value == TerminalPhase.Live) stream.columns else pane.value?.grid?.cols
-    files.scan(paneId, width, cwd)
+    files.scan(paneId, width, cwd, origin)
   }
 
   private fun act(block: suspend () -> Unit) {

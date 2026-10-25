@@ -4,8 +4,10 @@ import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -22,6 +24,7 @@ import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
+import dev.artalex.herdr.core.files.ScanState
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.After
@@ -35,8 +38,9 @@ import org.junit.Test
 /**
  * The files window of the agent screen against real herdr and sshd: paths on the screen are looked up over SFTP,
  * a tap downloads a file into the app's folder in Download and opens it, a path not found shows once and is checked quietly
- * afterwards, and files picked on the phone land on the host with their path going into the prompt.
- * The activities the app starts (a viewer, the document picker) are intercepted.
+ * afterwards, and files picked on the phone land on the host with their path going into the prompt. What the host
+ * doesn't have goes last. The window lists the files of its pane or of the pane's whole workspace. The activities the
+ * app starts (a viewer, the document picker) are intercepted.
  */
 @OptIn(ExperimentalTestApi::class)
 class FilesE2eTest {
@@ -111,6 +115,15 @@ class FilesE2eTest {
     }
     compose.waitUntil(10_000) { !sheetShown() }
   }
+
+  /** Leaves the agent screen for the list. */
+  private fun backToList() {
+    Espresso.pressBack()
+    compose.waitUntilExactlyOneExists(hasTestTag("board"), 10_000)
+  }
+
+  /** Whether the window's [list] has the row tagged [tag], scrolled to; for rows that shouldn't be there too. */
+  private fun listed(tag: String, list: String = "incoming") = runCatching { compose.onNodeWithTag(list).performScrollToNode(hasTestTag(tag)) }.isSuccess
 
   /** The pane's PTY has the phone's width, as `stty size` in it says. */
   private fun waitForPhoneWidth(pane: String) {
@@ -217,6 +230,42 @@ class FilesE2eTest {
   }
 
   @Test
+  fun whatTheHostDoesNotHaveGoesLast() {
+    // Three files found; then two are deleted, one of which comes up on the screen again among new paths.
+    val file = { name: String -> "$dir/$name-$run.txt" }
+    fixture.exec("mkdir -p '$dir' && cd '$dir' && for name in old lost deleted one two; do echo \$name > \$name-$run.txt; done")
+    val pane = fixture.workspace("e2e-gone-$run")
+    fixture.type(pane, "cd '$dir' && clear && printf '%s\\n' ./old-$run.txt ./lost-$run.txt ./deleted-$run.txt")
+
+    launchApp(compose, "whatTheHostDoesNotHaveGoesLast") {
+      openPane(pane)
+      openFiles()
+      for (name in listOf("old", "lost", "deleted")) waitFor("found-${file(name)}")
+      closeFiles()
+
+      fixture.exec("rm '${file("lost")}' '${file("deleted")}'")
+      fixture.type(pane, "clear && printf '%s\\n' ./missing-$run.txt ./one-$run.txt ./deleted-$run.txt ./two-$run.txt")
+      fixture.waitForScreen(pane, pump = { compose.waitForIdle() }) { screen -> screen.lines().any { it.trim() == "./two-$run.txt" } }
+      openFiles()
+      // Everything checked: the new path not found, both deleted files gone.
+      compose.waitUntil(15_000) {
+        val shelf = server.files.shelf
+        shelf.scan.value.orEmpty().any { it.shown == file("missing") && it.state == ScanState.MISSING } &&
+          shelf.book.value.found.filter { it.gone }.map { it.path }.containsAll(listOf(file("lost"), file("deleted")))
+      }
+      compose.waitForIdle()
+      // On the screen and among the files found earlier, what the host has comes first; each part keeps its order.
+      val rows = listOf("one", "two", "missing", "deleted").map { "scan-${file(it)}" } + listOf("old", "lost").map { "found-${file(it)}" }
+      val indexOf = compose.onNodeWithTag("incoming").fetchSemanticsNode().config[SemanticsProperties.IndexForKey]
+      val at = rows.associateWith(indexOf)
+      assertTrue("every row is listed: $at", at.values.all { it >= 0 })
+      assertEquals("the rows by their places $at", rows, rows.sortedBy { at.getValue(it) })
+      Screens.take(compose, "12f-files-not-on-host")
+      closeFiles()
+    }
+  }
+
+  @Test
   fun pickedFilesGoToTheHostAndTheirPathIntoThePrompt() {
     val pane = fixture.workspace("e2e-send-$run")
     fixture.fakeClaude(pane, "idle")
@@ -234,7 +283,7 @@ class FilesE2eTest {
         val first = "$uploads/фото-$run.png"
         waitFor("sent-$first", "outgoing")
         assertEquals("4096", fixture.exec("stat -c %s '$first'").trim())
-        assertEquals(fixture.exec("sha256sum < '$first'").substringBefore(' '), sha256(photo.readBytes()))
+        assertEquals(fixture.sha256(first), sha256(photo.readBytes()))
 
         // The same name again: the first file stays, the new one is numbered.
         compose.onNodeWithTag("sendFiles").performClick()
@@ -258,5 +307,59 @@ class FilesE2eTest {
     }
   }
 
-  private fun sha256(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+  @Test
+  fun theWindowListsItsPaneOrTheWholeWorkspace() {
+    // Two panes of one workspace and one of another, each with a file of its own on the screen.
+    fixture.exec("mkdir -p '$dir' && echo a > '$dir/a-$run.txt' && echo b > '$dir/b-$run.txt' && echo c > '$dir/c-$run.txt'")
+    val first = fixture.workspace("e2e-scope-$run")
+    val second = fixture.split(first)
+    val other = fixture.workspace("e2e-scope2-$run")
+    for ((pane, name) in listOf(first to "a", second to "b", other to "c")) fixture.type(pane, "cd '$dir' && clear && echo ./$name-$run.txt")
+    val context = ApplicationProvider.getApplicationContext<HerdrApp>()
+    val photo = File(context.cacheDir, "из-первой-$run.png").apply { writeBytes(ByteArray(1024) { it.toByte() }) }
+    val sent = "$uploads/из-первой-$run.png"
+    intercept(Intent.ACTION_OPEN_DOCUMENT, Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(photo))))
+
+    try {
+      launchApp(compose, "theWindowListsItsPaneOrTheWholeWorkspace") {
+        // The first pane's window finds its file and sends one from the phone.
+        openPane(first)
+        openFiles()
+        waitFor("found-$dir/a-$run.txt")
+        compose.onNodeWithTag("tab-outgoing").performClick()
+        compose.onNodeWithTag("sendFiles").performClick()
+        waitFor("sent-$sent", "outgoing")
+        closeFiles()
+        backToList()
+
+        // The second pane's window: its own file only, until it lists the whole workspace.
+        openPane(second)
+        openFiles()
+        waitFor("found-$dir/b-$run.txt")
+        assertTrue("the first pane's file isn't the second's", !listed("found-$dir/a-$run.txt"))
+        compose.onNodeWithTag("tab-outgoing").performClick()
+        assertTrue("nothing was sent from the second pane", !listed("sent-$sent", "outgoing"))
+        compose.onNodeWithTag("scope-workspace").performClick()
+        waitFor("sent-$sent", "outgoing")
+        compose.onNodeWithTag("tab-incoming").performClick()
+        waitFor("found-$dir/a-$run.txt")
+        assertTrue(listed("found-$dir/b-$run.txt"))
+        Screens.take(compose, "12e-files-whole-workspace")
+        closeFiles()
+        backToList()
+
+        // The choice stays. The other workspace's pane lists only its own file for its workspace too.
+        openPane(other)
+        openFiles()
+        waitFor("found-$dir/c-$run.txt")
+        compose.onNodeWithTag("scope-workspace").assertIsSelected()
+        assertTrue(!listed("found-$dir/a-$run.txt") && !listed("found-$dir/b-$run.txt"))
+        compose.onNodeWithTag("tab-outgoing").performClick()
+        assertTrue(!listed("sent-$sent", "outgoing"))
+        closeFiles()
+      }
+    } finally {
+      photo.delete()
+    }
+  }
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,11 +35,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -46,27 +49,39 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
+import dev.artalex.herdr.Share
 import dev.artalex.herdr.connection.ConnectionProblem
 import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.store.PaneEntry
 import dev.artalex.herdr.core.store.WorkspaceGroup
+import dev.artalex.herdr.files.pickedFile
 import dev.artalex.herdr.theme.Amber
 import dev.artalex.herdr.ui.common.StatusChip
 import dev.artalex.herdr.ui.common.problemText
 import dev.artalex.herdr.ui.common.rememberLocalNetworkAccess
 import dev.artalex.herdr.ui.common.rememberNotificationAccess
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * Agents of every server, under the server's name and its switch. A server that is off shows only that line and
  * isn't connected; switching it on connects it, and a host key to accept is asked about right here. The + by a
- * connected server's name starts an agent there, in a session without panes too, and shows it.
+ * connected server's name starts an agent there, in a session without panes too, and shows it. While a [share] from
+ * another app waits, the bar asks which agent it goes to and says what came; its cross drops the share.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgentsScreen(viewModel: AgentsViewModel, onOpenPane: (serverId: String, paneId: String) -> Unit, onOpenSettings: () -> Unit, onAddServer: () -> Unit) {
+fun AgentsScreen(
+  viewModel: AgentsViewModel,
+  share: Share?,
+  onOpenPane: (serverId: String, paneId: String) -> Unit,
+  onDropShare: () -> Unit,
+  onOpenSettings: () -> Unit,
+  onAddServer: () -> Unit,
+) {
   val sections by viewModel.sections.collectAsStateWithLifecycle()
   val newAgent by viewModel.newAgent.collectAsStateWithLifecycle()
   LaunchedEffect(viewModel) { viewModel.opened.collect { (serverId, paneId) -> onOpenPane(serverId, paneId) } }
@@ -91,14 +106,18 @@ fun AgentsScreen(viewModel: AgentsViewModel, onOpenPane: (serverId: String, pane
 
   Scaffold(
     topBar = {
-      TopAppBar(
-        title = { Text(stringResource(R.string.agents_title)) },
-        actions = {
-          IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("openSettings")) {
-            Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.agents_settings))
-          }
-        },
-      )
+      if (share != null) {
+        ShareBar(share, onDrop = onDropShare)
+      } else {
+        TopAppBar(
+          title = { Text(stringResource(R.string.agents_title)) },
+          actions = {
+            IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("openSettings")) {
+              Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.agents_settings))
+            }
+          },
+        )
+      }
     }
   ) { padding ->
     PullToRefreshBox(
@@ -120,6 +139,34 @@ fun AgentsScreen(viewModel: AgentsViewModel, onOpenPane: (serverId: String, pane
 
   sections?.let { HostKeyDialog(it, onTrust = viewModel::trustHostKey, onDecline = { id -> viewModel.setActive(id, false) }) }
   newAgent?.let { NewAgentDialog(it, onStart = viewModel::startNewAgent, onDismiss = viewModel::closeNewAgent) }
+}
+
+/** The list's bar while a share waits for its agent: the question, what came, and the cross that drops it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShareBar(share: Share, onDrop: () -> Unit) {
+  val resolver = LocalContext.current.contentResolver
+  // The names come from the app that shared the files.
+  val names by produceState(emptyList(), share) { value = withContext(Dispatchers.IO) { share.files.map { pickedFile(resolver, it).first } } }
+  val firstLine = share.text?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()
+  TopAppBar(
+    navigationIcon = {
+      IconButton(onClick = onDrop, modifier = Modifier.testTag("dropShare")) { Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.share_drop)) }
+    },
+    title = {
+      Column {
+        Text(stringResource(R.string.share_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+          (listOfNotNull(firstLine) + names).joinToString(" · "),
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.testTag("shareSummary"),
+        )
+      }
+    },
+  )
 }
 
 @Composable

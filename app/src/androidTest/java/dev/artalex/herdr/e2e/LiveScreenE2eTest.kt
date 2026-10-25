@@ -103,31 +103,11 @@ class LiveScreenE2eTest {
     compose.waitForIdle()
   }
 
-  /** Rows to columns of [paneId]'s view on the phone, as termlib measured it. */
-  private fun grid(paneId: String): Pair<Int, Int> {
-    lateinit var grid: Pair<Int, Int>
-    InstrumentationRegistry.getInstrumentation().runOnMainSync {
-      val stream = server.streams.of(paneId)
-      grid = checkNotNull(stream.rows) to checkNotNull(stream.columns)
-    }
-    return grid
-  }
-
   /** A text cell of [paneId]'s grid in the view [tag]: termlib fills the view with the grid from its top left. */
   private fun cellSize(tag: String, paneId: String): Size {
-    val (rows, cols) = grid(paneId)
+    val (rows, cols) = server.viewGrid(paneId)
     val view = compose.onNodeWithTag(tag).fetchSemanticsNode().size
     return Size(view.width.toFloat() / cols, view.height.toFloat() / rows)
-  }
-
-  /** Waits until the pane has as many rows as its view: the other screen of the pane resizes it a moment later. */
-  private fun awaitPaneFitsView(paneId: String) {
-    val deadline = System.currentTimeMillis() + 10_000
-    while (fixture.viewportRows(paneId) != grid(paneId).first) {
-      check(System.currentTimeMillis() < deadline) { "the pane never took the rows of its view" }
-      compose.waitForIdle()
-      Thread.sleep(200)
-    }
   }
 
   /**
@@ -310,7 +290,7 @@ class LiveScreenE2eTest {
     launchApp(compose, "selectionGoesOverRowsWithoutScrolling") { scenario ->
       openPane(shell)
       compose.waitUntilExactlyOneExists(hasTestTag("liveScreen"), 15_000)
-      awaitPaneFitsView(shell)
+      compose.awaitPaneFitsView(fixture, server, shell)
       fixture.type(shell, "seq -f L%g 1 300")
       val agentScreen = fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { it.contains("L300") }
       Thread.sleep(500) // frames arrive as they are drawn
@@ -329,11 +309,7 @@ class LiveScreenE2eTest {
       compose.onNodeWithTag("openTerminal").performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("extraKeys"), 10_000)
       compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("terminalOverlay")).fetchSemanticsNodes().isEmpty() }
-      // The keyboard comes up whenever termlib gets to it, and takes rows from the pane: bring it up first.
-      compose.onNodeWithTag("terminal").performClick()
-      compose.waitUntil(15_000) { keyboardShown(scenario) }
-      compose.idle(1_500)
-      awaitPaneFitsView(shell)
+      compose.raiseTerminalKeyboard(scenario, fixture, server, shell)
       fixture.type(shell, "clear; seq -f T%g 1 300")
       val terminalScreen = fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { it.contains("T300") }
       Thread.sleep(500)

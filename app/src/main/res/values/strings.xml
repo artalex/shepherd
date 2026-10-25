@@ -204,6 +204,8 @@
     <string name="files_retry">Retry</string>
     <string name="files_dismiss">Dismiss</string>
     <string name="files_path_copied">Path copied: %1$s</string>
+    <string name="files_scope_pane">This pane</string>
+    <string name="files_scope_workspace">Whole workspace</string>
     <string name="transfers_channel">File transfers</string>
     <string name="transfers_notification">Shepherd is transferring files</string>
     <string-array name="file_size_units">
@@ -213,4 +215,9 @@
         <item>GB</item>
         <item>TB</item>
     </string-array>
+
+    <string name="share_title">Choose an agent</string>
+    <string name="share_drop">Don\'t send</string>
+    <string name="share_copied">Copied: paste it in the terminal</string>
+    <string name="share_not_sent">%1$s wasn\'t sent: %2$s. Retry in the files window.</string>
 </resources>

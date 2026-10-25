@@ -22,6 +22,15 @@ sealed interface SessionState {
   data class Failed(val error: Throwable, val last: Ready?) : SessionState
 }
 
+/** The latest snapshot there is, the one before a failed poll too; null before the first one. */
+val SessionState.lastSnapshot: SessionSnapshot?
+  get() =
+    when (this) {
+      SessionState.Loading -> null
+      is SessionState.Ready -> snapshot
+      is SessionState.Failed -> last?.snapshot
+    }
+
 /**
  * Polls `session.snapshot` while someone collects [state].
  *

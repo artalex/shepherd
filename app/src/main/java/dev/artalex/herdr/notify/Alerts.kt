@@ -88,12 +88,7 @@ class Alerts(private val context: Context) {
     manager.activeNotifications.filter { it.id == ALERT_ID && it.tag?.substringBefore('/') == serverId }
 
   private fun openAgent(serverId: String, paneId: String): PendingIntent {
-    val intent =
-      Intent(context, MainActivity::class.java)
-        .setIdentifier(tag(serverId, paneId))
-        .putExtra(EXTRA_SERVER, serverId)
-        .putExtra(EXTRA_PANE, paneId)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    val intent = MainActivity.intent(context).setIdentifier(tag(serverId, paneId)).putExtra(EXTRA_SERVER, serverId).putExtra(EXTRA_PANE, paneId)
     return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
   }
 

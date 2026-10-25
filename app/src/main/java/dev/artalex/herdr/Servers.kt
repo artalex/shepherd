@@ -8,9 +8,11 @@ import androidx.lifecycle.LifecycleOwner
 import dev.artalex.herdr.connection.ConnectionController
 import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.connection.SessionRepository
+import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.host.HerdrHost
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.store.SessionState
+import dev.artalex.herdr.core.store.lastSnapshot
 import dev.artalex.herdr.data.KeyVault
 import dev.artalex.herdr.data.ServerStore
 import dev.artalex.herdr.files.FileTransfers
@@ -39,7 +41,15 @@ class Server(
   onSnapshot: (serverId: String, SessionState.Ready) -> Unit,
 ) {
   val connection = ConnectionController(app, id, store, keys, scope)
-  val sessions = SessionRepository(connection, scope) { onSnapshot(id, it) }
+
+  /** Shared text and files for the prompts of the panes; see [PromptInbox]. It learns of closed panes from the snapshots. */
+  val inbox = PromptInbox()
+
+  val sessions =
+    SessionRepository(connection, scope) {
+      inbox.seen(it.snapshot)
+      onSnapshot(id, it)
+    }
   val streams = PaneStreams(this)
   val files = FileTransfers(app, this, transfers)
 
@@ -51,6 +61,10 @@ class Server(
 
   /** The connected host, if any: screens use it for requests that aren't polling. */
   val host: HerdrHost? get() = (connection.state.value as? ConnectionState.Connected)?.host
+
+  /** Where files of pane [paneId] come from, by the last snapshot; null for a pane it doesn't have yet. */
+  fun originOf(paneId: String): FileOrigin? =
+    sessions.state.value.lastSnapshot?.panes?.firstOrNull { it.paneId == paneId }?.let { FileOrigin(it.terminalId, it.workspaceId) }
 
   fun dispose() {
     connection.dispose()

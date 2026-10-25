@@ -66,7 +66,7 @@ private fun extension(name: String) = name.substringAfterLast('.', "").lowercase
 private val TEXT_EXTENSIONS =
   setOf("kt", "kts", "java", "py", "rs", "go", "ts", "js", "c", "h", "cpp", "sh", "md", "log", "toml", "yaml", "yml", "gradle", "properties", "conf", "ini", "cfg", "diff", "patch")
 
-/** The name and size of a file the user picked; the name falls back to the last part of [uri]. */
+/** The name and size of a file the user picked or shared; the name falls back to the last part of [uri]. */
 internal fun pickedFile(resolver: ContentResolver, uri: Uri): Pair<String, Long?> {
   val row =
     runCatching {

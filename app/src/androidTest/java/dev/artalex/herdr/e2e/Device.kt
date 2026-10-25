@@ -13,9 +13,16 @@ object Device {
   private val keyguard get() = instrumentation.targetContext.getSystemService(KeyguardManager::class.java)
   private val power get() = instrumentation.targetContext.getSystemService(PowerManager::class.java)
 
-  /** Runs [command] as the shell user and returns its output once it's done. */
-  fun shell(command: String): String =
-    ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).use { it.readBytes().toString(Charsets.UTF_8) }
+  /**
+   * Runs [command] as the shell user, with [stdin] as its input, and returns its output once it's done. No shell parses
+   * the command: its arguments go apart at spaces, and quotes stay in them.
+   */
+  fun shell(command: String, stdin: ByteArray? = null): String {
+    if (stdin == null) return ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).use { it.readBytes().toString(Charsets.UTF_8) }
+    val (output, input) = instrumentation.uiAutomation.executeShellCommandRw(command)
+    ParcelFileDescriptor.AutoCloseOutputStream(input).use { it.write(stdin) }
+    return ParcelFileDescriptor.AutoCloseInputStream(output).use { it.readBytes().toString(Charsets.UTF_8) }
+  }
 
   /** Waits until [condition] holds; fails naming [what] after [timeoutMs]. */
   fun waitFor(what: String, timeoutMs: Long = 15_000, condition: () -> Boolean) {
