@@ -22,6 +22,7 @@ import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
 import dev.artalex.herdr.connection.ConnectionState
 import org.junit.After
+import kotlinx.coroutines.isActive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -165,6 +166,7 @@ class ServersE2eTest {
       compose.waitUntilExactlyOneExists(hasTestTag("server-$SECOND") and hasText("переименован"), 10_000)
       assertSame(host, (container.servers[SECOND]!!.connection.state.value as ConnectionState.Connected).host)
 
+      val scope = container.servers[SECOND]!!.scope
       compose.onNodeWithTag("openSettings").performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("serverRow-$SECOND"), 10_000)
       compose.onNodeWithTag("serverRow-$SECOND").performClick()
@@ -174,6 +176,8 @@ class ServersE2eTest {
       compose.onNodeWithTag("confirmDelete").performClick()
       compose.waitUntil(10_000) { gone("serverRow-$SECOND") }
       assertNull(container.servers[SECOND])
+      // Its coroutines, the session's sharing among them, went with it.
+      assertFalse(scope.isActive)
       compose.onNodeWithContentDescription(text(R.string.agent_back)).performClick()
       waitForPane(one, HostFixture.SERVER_ID)
       assertTrue(offTheList("server-$SECOND"))

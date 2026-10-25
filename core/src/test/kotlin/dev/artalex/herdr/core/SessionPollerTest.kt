@@ -3,15 +3,23 @@ package dev.artalex.herdr.core
 import dev.artalex.herdr.core.rpc.HerdrApi
 import dev.artalex.herdr.core.store.SessionPoller
 import dev.artalex.herdr.core.store.SessionState
+import dev.artalex.herdr.core.store.polledSessions
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -56,5 +64,27 @@ class SessionPollerTest {
     assertTrue(failed.error.message!!.contains("server_unavailable"))
     collector.cancel()
     coroutineContext.cancelChildren()
+  }
+
+  @Test
+  fun reconnectsLeaveNoPollerBehind() = runBlocking {
+    // Shared as the app shares a server's session: in the server's scope, while someone collects it.
+    val scope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext.job))
+    val apis = MutableStateFlow<HerdrApi?>(null)
+    val state = apis.polledSessions(periodMs = 50).stateIn(scope, SharingStarted.WhileSubscribed(), SessionState.Loading)
+    val collector = scope.launch { state.collect {} }
+    val transports = List(20) { FakeTransport { ok(it, snapshotResult) } }
+    for (transport in transports) {
+      apis.value = HerdrApi(transport)
+      withTimeout(2_000) { while (transport.requests.isEmpty()) delay(10) }
+    }
+    collector.cancel()
+    delay(200)
+    // Only the sharing is left: each poller ended with its host, the last one with the collector.
+    assertEquals(1, scope.coroutineContext.job.children.count())
+    val requests = transports.map { it.requests.size }
+    delay(200)
+    assertEquals(requests, transports.map { it.requests.size })
+    scope.cancel()
   }
 }

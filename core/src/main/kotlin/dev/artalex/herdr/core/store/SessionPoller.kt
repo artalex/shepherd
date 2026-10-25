@@ -4,12 +4,19 @@ import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.HerdrApi
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -73,3 +80,15 @@ class SessionPoller(
     const val DEFAULT_PERIOD_MS = 2_000L
   }
 }
+
+/**
+ * The session of the host this flow names now, null for none. Each host gets a [SessionPoller] of its own, in a scope
+ * that ends when the next host comes or the result is no longer collected, rather than with the scope of whoever
+ * shares the result. [onPoller] gets each poller as it starts, for [SessionPoller.refreshNow].
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun Flow<HerdrApi?>.polledSessions(periodMs: Long = SessionPoller.DEFAULT_PERIOD_MS, onPoller: (SessionPoller) -> Unit = {}): Flow<SessionState> =
+  flatMapLatest { api ->
+    if (api == null) flowOf(SessionState.Loading)
+    else flow<SessionState> { coroutineScope { emitAll(SessionPoller(api, this, periodMs).also(onPoller).state) } }
+  }

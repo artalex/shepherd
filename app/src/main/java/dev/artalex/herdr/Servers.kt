@@ -19,12 +19,15 @@ import dev.artalex.herdr.files.FileTransfers
 import dev.artalex.herdr.ui.terminal.PaneStreams
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
 /**
@@ -36,10 +39,13 @@ class Server(
   app: Application,
   store: ServerStore,
   keys: KeyVault,
-  val scope: CoroutineScope,
+  appScope: CoroutineScope,
   transfers: MutableStateFlow<Int>,
   onSnapshot: (serverId: String, SessionState.Ready) -> Unit,
 ) {
+  /** The server's coroutines, under the app's: they end with the server ([dispose]). */
+  val scope = CoroutineScope(appScope.coroutineContext + SupervisorJob(appScope.coroutineContext.job))
+
   val connection = ConnectionController(app, id, store, keys, scope)
 
   /** Shared text and files for the prompts of the panes; see [PromptInbox]. It learns of closed panes from the snapshots. */
@@ -53,8 +59,8 @@ class Server(
   val streams = PaneStreams(this)
   val files = FileTransfers(app, this, transfers)
 
-  /** Snippets for agents the phone started; see [StartPrompts]. */
-  val startPrompts = StartPrompts(this)
+  /** What follows agents the phone started: a launch the pane can't run, then their snippets; see [AgentStarts]. */
+  val agentStarts = AgentStarts(this)
 
   /** The server's settings as the user changes them. */
   val config: Flow<ServerConfig> = store.servers.mapNotNull { list -> list.firstOrNull { it.id == id } }.distinctUntilChanged()
@@ -69,6 +75,7 @@ class Server(
   fun dispose() {
     connection.dispose()
     files.dispose()
+    scope.cancel()
   }
 }
 

@@ -47,6 +47,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
@@ -62,6 +63,7 @@ import dev.artalex.herdr.ui.common.RowKey
 import dev.artalex.herdr.ui.common.rememberLinkOpener
 import dev.artalex.herdr.ui.common.rememberTerminalTypeface
 import dev.artalex.herdr.core.terminal.CloseReason
+import kotlinx.coroutines.launch
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.VTermKey
 
@@ -100,9 +102,16 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
   // The button in the extra row, the selection menu and the keyboard's paste key all paste through here.
   val paste: () -> Unit = { clipboardText(context)?.let(viewModel::paste) }
   val snackbar = remember { SnackbarHostState() }
+  val resources = LocalResources.current
   val openLink = rememberLinkOpener(snackbar)
   val selection = remember { TerminalSelection() }
   LaunchedEffect(closed) { if (closed) onPaneClosed() }
+  // Typing or a paste without a live stream goes nowhere: one note at a time says so, rather than one per key.
+  LaunchedEffect(stream) {
+    stream.undelivered.collect {
+      if (snackbar.currentSnackbarData == null) launch { snackbar.showSnackbar(resources.getString(R.string.terminal_input_lost)) }
+    }
+  }
   // Key events (hardware keyboard, the system input path) go to the terminal, also after rotation: it is the
   // only focusable element on this screen, and takes focus again once frames arrive.
   val focus = remember { FocusRequester() }
@@ -158,7 +167,7 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
           Snackbar(it, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
         }
       }
-      if (showExtraKeys) ExtraKeysRow(viewModel, onPaste = paste)
+      if (showExtraKeys) ExtraKeysRow(viewModel, live = phase == TerminalPhase.Live, onPaste = paste)
     }
   }
 
@@ -199,8 +208,9 @@ private fun PhaseOverlay(phase: TerminalPhase, onReconnect: () -> Unit, onTakeOv
   }
 }
 
+/** The extra keys; they and the paste button wait for a [live] stream, while Ctrl, Alt and Shift can be set ahead. */
 @Composable
-private fun ExtraKeysRow(viewModel: TerminalViewModel, onPaste: () -> Unit) {
+private fun ExtraKeysRow(viewModel: TerminalViewModel, live: Boolean, onPaste: () -> Unit) {
   val modifiers = viewModel.modifiers
   LazyRow(
     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -209,7 +219,7 @@ private fun ExtraKeysRow(viewModel: TerminalViewModel, onPaste: () -> Unit) {
   ) {
     item {
       KeyTarget {
-        OutlinedIconButton(onClick = onPaste, modifier = Modifier.touchOnly().testTag("paste")) {
+        OutlinedIconButton(onClick = onPaste, enabled = live, modifier = Modifier.touchOnly().testTag("paste")) {
           Icon(painterResource(R.drawable.ic_paste), contentDescription = stringResource(R.string.terminal_paste))
         }
       }
@@ -227,6 +237,7 @@ private fun ExtraKeysRow(viewModel: TerminalViewModel, onPaste: () -> Unit) {
           }
         },
         modifier = Modifier.touchOnly().testTag("xkey-" + key.label),
+        enabled = live,
       )
     }
   }

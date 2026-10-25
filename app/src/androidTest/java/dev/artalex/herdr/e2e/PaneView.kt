@@ -1,12 +1,18 @@
 package dev.artalex.herdr.e2e
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.text.AnnotatedString
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.artalex.herdr.MainActivity
 import dev.artalex.herdr.Server
+
+/** The agent screen's prompt field holds exactly [text]. */
+fun promptHolds(text: String) = SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(text))
 
 /** Rows to columns of [paneId]'s view on the phone, as termlib measured it. */
 fun Server.viewGrid(paneId: String): Pair<Int, Int> {

@@ -128,6 +128,11 @@
     <string name="snippets_on_start_hint">at the start of %1$s</string>
     <string name="snippets_on_start_late">Not sent at start: %1$s. The agent wasn\'t free within 3 minutes.</string>
     <string name="snippets_on_start_failed">Couldn\'t send at start: %1$s.</string>
+    <string name="agent_missing_title">The agent didn\'t start</string>
+    <string name="agent_missing_text">The pane\'s shell found no %1$s, though the app found it on the host with a login shell. On Linux, herdr\'s pane shells don\'t read ~/.profile unless set to. For them to see the same programs as a terminal, add to ~/.config/herdr/config.toml on the host:\n\n%2$s\n\nand run herdr server reload-config: new panes pick it up.</string>
+    <string name="agent_missing_copy">Copy setting</string>
+    <string name="agent_missing_copied">Setting copied</string>
+    <string name="agent_missing_ok">OK</string>
     <string name="agent_no_screen">Waiting for the pane\'s screen…</string>
     <string name="error_agent_blocked">The agent is waiting for an answer in a dialog: answer with the buttons.</string>
     <string name="error_agent_not_ready">The agent no longer runs in this pane.</string>
@@ -167,6 +172,7 @@
     <string name="terminal_failed">Couldn\'t open the terminal: %1$s</string>
     <string name="terminal_reconnect">Reconnect</string>
     <string name="terminal_paste">Paste</string>
+    <string name="terminal_input_lost">Not connected to the pane: the input didn\'t reach it</string>
     <string name="terminal_take_back">Take control back</string>
     <string name="link_not_web">Only http and https links open: %1$s</string>
 
@@ -195,6 +201,7 @@
     <string name="files_path_add">Add</string>
     <string name="files_path_missing">No such file on the host</string>
     <string name="files_path_not_file">Not a file</string>
+    <string name="files_path_failed">Couldn\'t check the path: %1$s</string>
     <string name="files_no_connection">No connection to the host</string>
     <string name="files_no_viewer">Nothing to open %1$s with</string>
     <string name="files_send">Send files</string>

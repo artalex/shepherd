@@ -12,9 +12,13 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
@@ -54,6 +58,14 @@ class PaneStream(private val server: Server, private val paneId: String) {
   /** The pane is gone: closed, or its shell exited. The screens have nothing left to show. */
   val paneClosed: StateFlow<Boolean> = _paneClosed.asStateFlow()
 
+  private val _undelivered = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+  /**
+   * Typing or a paste that didn't reach the pane: no stream was live, or it broke on the way. Nothing is kept to send
+   * later: a command typed now would run whenever the stream came back.
+   */
+  val undelivered: SharedFlow<Unit> = _undelivered.asSharedFlow()
+
   private var session: TerminalSession? = null
   private var stream: Job? = null
   private var size: TerminalDimensions? = null
@@ -69,7 +81,7 @@ class PaneStream(private val server: Server, private val paneId: String) {
       onKeyboardInput = { bytes ->
         // Typing into the stream brings herdr's view back to the bottom.
         scrolledBack = 0
-        session?.let { s -> server.scope.launch { runCatching { s.sendBytes(bytes) } } }
+        deliver("typing") { it.sendBytes(bytes) }
       },
       onResize = ::onResize,
       // Links in the text get underlined, and a tap on one goes to the screen's onHyperlinkClick.
@@ -109,9 +121,27 @@ class PaneStream(private val server: Server, private val paneId: String) {
 
   /** Pastes [text] into the pane; herdr brackets it for an app that asked for bracketed paste. */
   fun paste(text: String) {
-    val s = session ?: return
     scrolledBack = 0
-    server.scope.launch { runCatching { s.paste(text) } }
+    deliver("a paste") { it.paste(text) }
+  }
+
+  /** Sends [what] over the live stream; without one, or when sending fails, the screens hear of it ([undelivered]). */
+  private fun deliver(what: String, send: suspend (TerminalSession) -> Unit) {
+    val s = session
+    if (s == null) {
+      _undelivered.tryEmit(Unit)
+      return
+    }
+    server.scope.launch {
+      try {
+        send(s)
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.w(TAG, "$what didn't reach the pane: ${e.message}")
+        _undelivered.tryEmit(Unit)
+      }
+    }
   }
 
   /** Scrolls like the desktop's mouse wheel: [lines] up into history, or down when negative. */
@@ -177,10 +207,13 @@ class PaneStream(private val server: Server, private val paneId: String) {
               }
             }
           }
+          // The stream ended: input has nowhere to go until the next one opens.
+          closeSession()
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {
           Log.w(TAG, "terminal stream failed: ${e.message}")
+          closeSession()
           _phase.value = TerminalPhase.Failed(e.message ?: e.javaClass.simpleName)
           server.host?.let { if (paneGone(it)) _paneClosed.value = true }
         }

@@ -1,9 +1,7 @@
 package dev.artalex.herdr.e2e
 
 import android.text.InputType
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyDescendant
@@ -16,7 +14,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
-import androidx.compose.ui.text.AnnotatedString
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.rule.GrantPermissionRule
@@ -118,6 +115,8 @@ class AgentsE2eTest {
       compose.onNodeWithTag("prompt").performTextInput("не дойдёт")
       compose.onNodeWithTag("sendPrompt").performClick()
       compose.waitUntilExactlyOneExists(hasText(text(R.string.error_agent_blocked)), 10_000)
+      // herdr refused it: the text waits in the field until the agent is answered.
+      compose.onNodeWithTag("prompt").assert(promptHolds("не дойдёт"))
       Screens.take(compose, "05-agent-blocked-hint")
     }
   }
@@ -127,8 +126,6 @@ class AgentsE2eTest {
     compose.onNodeWithTag("quickKeys").performScrollToNode(hasTestTag(tag))
     compose.onNodeWithTag(tag).performClick()
   }
-
-  private fun promptHolds(text: String) = SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(text))
 
   @Test
   fun shiftGoesWithTheNextArrowOrTab() {

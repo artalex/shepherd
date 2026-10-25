@@ -183,7 +183,7 @@ class AgentsViewModel(
           return@launch
         }
         val paneId = host.api.startSession(resolved, kind)
-        server.startPrompts.send(paneId, snippets.snippets.value.onStart(kind))
+        server.agentStarts.started(paneId, kind, snippets.snippets.value.onStart(kind))
         servers.setAgentFolder(id, resolved)
         _newAgent.value = null
         _opened.send(id to paneId)

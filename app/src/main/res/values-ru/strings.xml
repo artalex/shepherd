@@ -128,6 +128,11 @@
     <string name="snippets_on_start_hint">при запуске %1$s</string>
     <string name="snippets_on_start_late">Не отправлено при запуске: %1$s. Агент не освободился за 3 минуты.</string>
     <string name="snippets_on_start_failed">Не удалось отправить при запуске: %1$s.</string>
+    <string name="agent_missing_title">Агент не запустился</string>
+    <string name="agent_missing_text">Оболочка панели не нашла программу %1$s, хотя приложение нашло её на хосте через login-оболочку. На Linux оболочки панелей herdr по умолчанию не читают ~/.profile. Чтобы они видели те же программы, что и терминал, добавьте на хосте в ~/.config/herdr/config.toml:\n\n%2$s\n\nи выполните herdr server reload-config: настройку подхватят новые панели.</string>
+    <string name="agent_missing_copy">Скопировать настройку</string>
+    <string name="agent_missing_copied">Настройка скопирована</string>
+    <string name="agent_missing_ok">Понятно</string>
     <string name="agent_no_screen">Жду экран панели…</string>
     <string name="error_agent_blocked">Агент ждёт ответа в диалоге — ответьте кнопками.</string>
     <string name="error_agent_not_ready">Агент уже не запущен в этой панели.</string>
@@ -167,6 +172,7 @@
     <string name="terminal_failed">Не удалось открыть терминал: %1$s</string>
     <string name="terminal_reconnect">Подключить снова</string>
     <string name="terminal_paste">Вставить</string>
+    <string name="terminal_input_lost">Нет связи с панелью: ввод не дошёл</string>
     <string name="terminal_take_back">Вернуть управление</string>
     <string name="link_not_web">Открываются только ссылки http и https: %1$s</string>
 
@@ -195,6 +201,7 @@
     <string name="files_path_add">Добавить</string>
     <string name="files_path_missing">Такого файла на хосте нет</string>
     <string name="files_path_not_file">Это не файл</string>
+    <string name="files_path_failed">Не удалось проверить путь: %1$s</string>
     <string name="files_no_connection">Нет связи с хостом</string>
     <string name="files_no_viewer">Нечем открыть %1$s</string>
     <string name="files_send">Отправить файлы</string>

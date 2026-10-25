@@ -11,6 +11,7 @@ import dev.artalex.herdr.core.rpc.HerdrApi
 import dev.artalex.herdr.core.store.SessionPoller
 import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.store.buildBoard
+import dev.artalex.herdr.core.store.launchLacksProgram
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
 import dev.artalex.herdr.core.store.startSession
@@ -30,6 +31,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -383,5 +385,20 @@ class HerdrIntegrationTest {
     server.raw("pane.close", buildJsonObject { put("pane_id", pane) })
     val reason = a.closed()
     assertTrue(reason == CloseReason.NotFound || reason == CloseReason.Ended, "unexpected close reason $reason")
+  }
+
+  @Test
+  fun launchOfAProgramThePaneLacksIsTold() = runBlocking {
+    // Kimi, as nothing here has it: a test must not start a real agent.
+    assumeTrue(ProcessBuilder("sh", "-c", "command -v ${AgentKind.KIMI.executable}").start().waitFor() != 0, "kimi is installed")
+    val pane = server.raw("workspace.create", buildJsonObject { put("label", "lacks") }).getValue("root_pane").jsonObject.getValue("pane_id").jsonPrimitive.content
+    api.startNamedAgentInNewPane(pane, AgentKind.KIMI, null)
+    val snapshots = flow {
+      while (true) {
+        emit(api.snapshot())
+        delay(300)
+      }
+    }
+    assertTrue(launchLacksProgram(pane, AgentKind.KIMI.executable, snapshots) { api.readPane(pane, ansi = false).text })
   }
 }

@@ -15,9 +15,12 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
+import dev.artalex.herdr.core.model.AgentKind
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -109,6 +112,29 @@ class NewAgentE2eTest {
       assertNotEquals("the second agent should get its own tab", first.field("tab_id"), second.field("tab_id"))
       sendPrompt("второй агент")
       fixture.waitForScreen(checkNotNull(second.field("pane_id")), pump = { compose.waitForIdle() }) { it.contains("второй агент") }
+    }
+  }
+
+  @Test
+  fun agentThePaneCantRunIsExplained() {
+    // Kimi, which the host hasn't: the pane's shell says so, and no real agent starts.
+    val pane = fixture.workspace("e2e-missing")
+    val server = checkNotNull(container.servers[HostFixture.SERVER_ID])
+    launchApp(compose, "agentThePaneCantRunIsExplained") {
+      compose.scrollListTo(paneTag(pane))
+      compose.onNodeWithTag(paneTag(pane)).performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 10_000)
+      // As when the app starts it: herdr types the program into the pane's shell, and the app watches the start.
+      fixture.raw("agent.start", buildJsonObject {
+        put("name", "kimi-e2e")
+        put("kind", AgentKind.KIMI.kind)
+        put("pane_id", pane)
+      })
+      server.agentStarts.started(pane, AgentKind.KIMI, emptyList())
+      compose.waitUntilExactlyOneExists(hasText(text(R.string.agent_missing_title)), 20_000)
+      Screens.take(compose, "17-agent-missing")
+      compose.onNodeWithTag("copyLoginShells").performClick()
+      compose.waitUntilExactlyOneExists(hasText(text(R.string.agent_missing_copied)), 5_000)
     }
   }
 }

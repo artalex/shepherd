@@ -1,5 +1,6 @@
 package dev.artalex.herdr.core.files
 
+import dev.artalex.herdr.core.rpc.blockingIoWhileProgressing
 import java.io.Closeable
 import java.io.InputStream
 import java.io.OutputStream
@@ -31,6 +32,22 @@ interface RemoteFiles : Closeable {
    */
   fun upload(input: InputStream, dir: String, name: String, progress: (Long) -> Boolean): String
 }
+
+/**
+ * Runs [block], a transfer or a check, on these files and closes them when it is done. A transfer tells of its progress
+ * through the function [block] gets; with none for [stallMs] (for a check: from the start), the files are closed under
+ * it, which fails a read stuck waiting for the host, and it ends in [dev.artalex.herdr.core.rpc.HerdrTimeoutException].
+ * Cancelled, it gets [graceMs] to stop at its next chunk, as a transfer does once its progress callback returns false,
+ * and to remove its unfinished part; one stuck in a read gets the files closed under it too.
+ */
+suspend fun <T> RemoteFiles.guarded(what: String, stallMs: Long = TRANSFER_STALL_MS, graceMs: Long = TRANSFER_GRACE_MS, block: suspend (progressed: () -> Unit) -> T): T =
+  blockingIoWhileProgressing(this, stallMs, graceMs, timeout = { "$what: nothing moved for $stallMs ms" }, block)
+
+/** How long a transfer may go without a byte before it counts as stuck: on a dead connection rather than a slow one. */
+const val TRANSFER_STALL_MS = 30_000L
+
+/** How long a cancelled transfer gets to stop by itself and remove its unfinished part before its files are closed. */
+const val TRANSFER_GRACE_MS = 2_000L
 
 /**
  * [name] as a file name for the host: no slashes, control characters or leading dots (hidden files), none of the

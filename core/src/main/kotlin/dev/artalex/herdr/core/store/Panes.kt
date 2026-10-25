@@ -5,9 +5,12 @@ import dev.artalex.herdr.core.model.AgentStatus
 import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.rpc.HerdrApi
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Name attempts before giving up on `agent_name_taken`. */
@@ -19,6 +22,10 @@ private const val NEW_SHELL_POLL_MS = 200L
 
 /** After herdr refused a prompt because the agent shows a dialog: the next try waits for a poll after this. */
 private const val DIALOG_RETRY_MS = 1_000L
+
+/** How long a pane is watched after a start for its shell not finding the program, and how often its screen is read. */
+private const val LAUNCH_WATCH_MS = 15_000L
+private const val LAUNCH_CHECK_MS = 1_000L
 
 /**
  * herdr name for a [kind] agent started in [cwd]: the directory's last part in herdr's alphabet (a lowercase
@@ -103,3 +110,52 @@ suspend fun promptWhenReady(paneId: String, prompts: List<String>, snapshots: Fl
   }
   return left.toList()
 }
+
+/**
+ * Whether [screen] shows the pane's shell not finding [executable], the program herdr types to start an agent. bash
+ * says "<exe>: command not found", or "Command '<exe>' not found" through Ubuntu's handler; dash "<exe>: not found",
+ * zsh "command not found: <exe>", fish "Unknown command: <exe>".
+ */
+fun shellLacks(screen: String, executable: String): Boolean {
+  val word = Regex("""(^|[\s'"`:])${Regex.escape(executable)}($|[\s'"`:,])""")
+  return screen.lines().any { line ->
+    (line.contains("not found", ignoreCase = true) || line.contains("unknown command", ignoreCase = true)) && word.containsMatchIn(line)
+  }
+}
+
+/**
+ * Whether the agent just started in [paneId] didn't start because the pane's shell has no [executable]: herdr keeps
+ * such a launch pending, and the shell says so on the screen, which [readScreen] reads. Checks every [periodMs] until
+ * [snapshots] show the agent (false), the screen tells (true) or [timeoutMs] passes (false).
+ */
+suspend fun launchLacksProgram(
+  paneId: String,
+  executable: String,
+  snapshots: Flow<SessionSnapshot>,
+  timeoutMs: Long = LAUNCH_WATCH_MS,
+  periodMs: Long = LAUNCH_CHECK_MS,
+  readScreen: suspend () -> String,
+): Boolean = coroutineScope {
+  val lacks =
+    withTimeoutOrNull(timeoutMs) {
+      // One subscription for the whole watch: the session goes on being polled as usual meanwhile.
+      val latest = snapshots.stateIn(this@coroutineScope)
+      var answer: Boolean? = null
+      while (answer == null) {
+        delay(periodMs)
+        answer =
+          when {
+            latest.value.hasAgent(paneId) -> false
+            shellLacks(readScreen(), executable) -> true
+            else -> null
+          }
+      }
+      answer
+    }
+  coroutineContext.cancelChildren()
+  lacks ?: false
+}
+
+/** herdr knows the agent in [paneId]: it found the program running, or the launch is no longer pending. */
+private fun SessionSnapshot.hasAgent(paneId: String): Boolean =
+  panes.any { it.paneId == paneId && it.agent != null } || agents.any { it.paneId == paneId && !it.launchPending }

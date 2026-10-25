@@ -4,20 +4,26 @@ import dev.artalex.herdr.core.host.parseInstalledAgents
 import dev.artalex.herdr.core.model.AgentInfo
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.AgentStatus
+import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.rpc.HerdrApi
 import dev.artalex.herdr.core.store.agentName
+import dev.artalex.herdr.core.store.launchLacksProgram
 import dev.artalex.herdr.core.store.promptWhenReady
+import dev.artalex.herdr.core.store.shellLacks
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
 import dev.artalex.herdr.core.store.startSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
@@ -148,5 +154,53 @@ class PanesTest {
       promptWhenReady("w1:p2", listOf("/effort max"), MutableStateFlow(snapshot(AgentStatus.IDLE)), 180_000) { throw ApiError("agent_not_ready", "gone") }
     }
     assertEquals("agent_not_ready", error.code)
+  }
+
+  @Test
+  fun shellLacksTheProgramInEachShellsWords() {
+    for (said in listOf(
+      "bash: kimi: command not found",
+      "Command 'kimi' not found, did you mean:",
+      "sh: 1: kimi: not found",
+      "zsh: command not found: kimi",
+      "fish: Unknown command: kimi",
+    )) assertTrue(shellLacks("user@host:~$ kimi\n$said\nuser@host:~$ ", "kimi"), said)
+    for (said in listOf("user@host:~$ kimi", "cat: kimi.txt: No such file or directory", "Command 'kimichi' not found", "error: file not found")) {
+      assertFalse(shellLacks(said, "kimi"), said)
+    }
+  }
+
+  /** Pane w1:p2 right after a start: herdr has the launch pending, and [agent] once it found the program running. */
+  private fun launching(agent: String? = null) =
+    SessionSnapshot(
+      version = "0.9.5",
+      protocol = 22,
+      panes = listOf(PaneInfo("w1:p2", "t2", "w1", "w1:t2", agent = agent)),
+      agents = listOf(AgentInfo("w1:p2", "t2", "w1", "w1:t2", agent = agent, launchPending = agent == null)),
+    )
+
+  @Test
+  fun launchTheShellCantRunIsTold() = runTest {
+    var reads = 0
+    val lacks = launchLacksProgram("w1:p2", "kimi", MutableStateFlow(launching())) { if (++reads < 2) "user@host:~$ kimi" else "user@host:~$ kimi\nCommand 'kimi' not found" }
+    assertTrue(lacks)
+    assertEquals(2, reads)
+  }
+
+  @Test
+  fun startedAgentEndsTheWatch() = runTest {
+    val snapshots = MutableStateFlow(launching())
+    var reads = 0
+    val watch = async { launchLacksProgram("w1:p2", "kimi", snapshots) { reads++; "user@host:~$ kimi" } }
+    runCurrent()
+    advanceTimeBy(1_500)
+    snapshots.value = launching(agent = "kimi")
+    assertFalse(watch.await())
+    assertEquals(1, reads)
+  }
+
+  @Test
+  fun silenceUntilTheWatchEndsIsNoProblem() = runTest {
+    assertFalse(launchLacksProgram("w1:p2", "kimi", MutableStateFlow(launching())) { "user@host:~$ kimi" })
   }
 }

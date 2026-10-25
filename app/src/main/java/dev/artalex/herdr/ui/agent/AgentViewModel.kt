@@ -6,8 +6,9 @@ import dev.artalex.herdr.PromptPart
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.Servers
-import dev.artalex.herdr.StartPromptsFailure
+import dev.artalex.herdr.AgentStartProblem
 import dev.artalex.herdr.core.files.FileOrigin
+import dev.artalex.herdr.core.host.HerdrHost
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.rpc.ApiError
@@ -164,8 +165,7 @@ class AgentViewModel(
 
   /** Logical keys (`1`, `enter`, `esc`, `up`, `ctrl+c`, …); herdr encodes them for the pane. */
   fun sendKeys(keys: List<String>) =
-    act {
-      val host = server.host ?: return@act
+    act { host ->
       stream.scrollToBottom()
       if (pane.value?.pane?.agent != null) host.api.sendAgentKeys(paneId, keys) else host.api.sendPaneKeys(paneId, keys)
     }
@@ -178,11 +178,18 @@ class AgentViewModel(
     stream.emulator.dispatchKey(0, vtermKey)
   }
 
-  fun sendPrompt(text: String) =
-    act {
+  /** The prompt being written; it outlives the screen's recompositions and configuration changes. */
+  val draft = PromptDraft()
+
+  /** Sends the prompt's text to the agent; the draft keeps it until herdr takes it. */
+  fun sendPrompt() {
+    val text = draft.take() ?: return
+    act(onFailure = draft::failed) { host ->
       stream.scrollToBottom()
-      server.host?.api?.promptAgent(paneId, text)
+      host.api.promptAgent(paneId, text)
+      draft.sent()
     }
+  }
 
   /** The prompt snippets, the same on every agent screen. */
   val snippets: StateFlow<List<Snippet>> = snippetStore.snippets
@@ -195,14 +202,18 @@ class AgentViewModel(
 
   fun setSnippets(snippets: List<Snippet>) = snippetStore.set(snippets)
 
-  /** Snippets that didn't reach an agent started from the phone, whichever screen started it. */
-  val startPromptsFailures: Flow<StartPromptsFailure> = server.startPrompts.failures
+  /** What went wrong with an agent started from the phone, whichever screen started it. */
+  val startProblems: Flow<AgentStartProblem> = server.agentStarts.problems
 
-  /** Looks up the installed agents once; the host caches the answer for the connection. */
+  /** Looks up the installed agents once; the host caches the answer for the connection. Without one the snackbar says so. */
   fun loadAgents() {
     if (_agents.value != null) return
     viewModelScope.launch {
-      val host = server.host ?: return@launch
+      val host = server.host
+      if (host == null) {
+        _messages.send(UiMessage(R.string.state_disconnected))
+        return@launch
+      }
       _agents.value =
         try {
           host.installedAgents()
@@ -220,28 +231,26 @@ class AgentViewModel(
    * snippets for its start go to it once it is ready.
    */
   fun startAgent(kind: AgentKind) =
-    act {
-      val api = server.host?.api ?: return@act
-      api.startNamedAgent(paneId, kind, cwd)
-      server.startPrompts.send(paneId, snippetStore.snippets.value.onStart(kind))
+    act { host ->
+      host.api.startNamedAgent(paneId, kind, cwd)
+      server.agentStarts.started(paneId, kind, snippetStore.snippets.value.onStart(kind))
     }
 
   /** Opens a tab in this pane's workspace and directory, starts a [kind] agent there and shows it; see [startAgent]. */
   fun newSession(kind: AgentKind) =
-    act {
-      val api = server.host?.api ?: return@act
+    act { host ->
       val pane = pane.value?.pane ?: return@act
       val dir = cwd
-      val created = api.createTab(pane.workspaceId, dir)
-      api.startNamedAgentInNewPane(created.paneId, kind, dir)
-      server.startPrompts.send(created.paneId, snippetStore.snippets.value.onStart(kind))
+      val created = host.api.createTab(pane.workspaceId, dir)
+      host.api.startNamedAgentInNewPane(created.paneId, kind, dir)
+      server.agentStarts.started(created.paneId, kind, snippetStore.snippets.value.onStart(kind))
       _opened.send(created.paneId)
     }
 
   /** Closes this pane and everything in it; the screen leaves once a snapshot no longer has the pane. */
   fun closePane() =
-    act {
-      server.host?.api?.closePane(paneId)
+    act { host ->
+      host.api.closePane(paneId)
     }
 
   /** Files between the phone and the host, for the files window. */
@@ -270,13 +279,24 @@ class AgentViewModel(
     files.scan(paneId, width, cwd, origin)
   }
 
-  private fun act(block: suspend () -> Unit) {
+  /**
+   * Runs [block] against the connected host. Without a connection nothing goes and the snackbar says so; herdr's refusal
+   * or a broken connection goes to the snackbar too. Either way [onFailure] runs.
+   */
+  private fun act(onFailure: () -> Unit = {}, block: suspend (HerdrHost) -> Unit) {
     viewModelScope.launch {
+      val host = server.host
+      if (host == null) {
+        onFailure()
+        _messages.send(UiMessage(R.string.state_disconnected))
+        return@launch
+      }
       try {
-        block()
+        block(host)
       } catch (e: CancellationException) {
         throw e
       } catch (e: ApiError) {
+        onFailure()
         _messages.send(
           when (e.code) {
             "agent_blocked" -> UiMessage(R.string.error_agent_blocked)
@@ -288,6 +308,7 @@ class AgentViewModel(
           }
         )
       } catch (e: Exception) {
+        onFailure()
         _messages.send(UiMessage(R.string.error_connection, e.message ?: e.javaClass.simpleName))
       }
       kicks.tryEmit(Unit)

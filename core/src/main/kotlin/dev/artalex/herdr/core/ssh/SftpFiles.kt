@@ -31,20 +31,39 @@ internal class SftpFiles(private val channel: ChannelSftp, private val onClose: 
 
   override fun upload(input: InputStream, dir: String, name: String, progress: (Long) -> Boolean): String {
     makeDirs(dir)
-    // Written aside and renamed once complete, so nobody on the host reads half a file.
+    // Written aside and given its name once complete, so nobody on the host reads half a file.
     val part = "$dir/.$name.${UUID.randomUUID().toString().take(8)}.part"
     try {
       val monitor = Progress(progress)
       sftp("upload $name") { channel.put(input, part, monitor, ChannelSftp.OVERWRITE) }
       if (monitor.stopped) throw CancellationException("upload of $name stopped")
-      // JSch renames with posix-rename where the server has it, which replaces the target: look for a free name first.
-      val target = (1..MAX_NUMBER).asSequence().map { "$dir/${numberedName(name, it)}" }.firstOrNull { stat(it) == null } ?: throw IOException("no free name for $name in $dir")
-      sftp("rename to $target") { channel.rename(part, target) }
-      return target
+      return publish(part, dir, name)
     } catch (e: Throwable) {
       runCatching { channel.rm(part) }
       throw e
     }
+  }
+
+  /**
+   * Gives [part] the first free one of [name]'s numbered names in [dir]. A hard link takes a name only if nobody has it,
+   * so uploads of one name running at once each get their own. Where the host can't link (no `hardlink@openssh.com`,
+   * or a file system without hard links), [part] is renamed to the first name that is free when looked up: JSch renames
+   * with posix-rename, which would replace a file another upload put there in between.
+   */
+  private fun publish(part: String, dir: String, name: String): String {
+    for (n in 1..MAX_NUMBER) {
+      val target = "$dir/${numberedName(name, n)}"
+      try {
+        channel.hardlink(part, target)
+      } catch (e: SftpException) {
+        if (stat(target) != null) continue
+        sftp("rename to $target") { channel.rename(part, target) }
+        return target
+      }
+      runCatching { channel.rm(part) }
+      return target
+    }
+    throw IOException("no free name for $name in $dir")
   }
 
   override fun close() = onClose()

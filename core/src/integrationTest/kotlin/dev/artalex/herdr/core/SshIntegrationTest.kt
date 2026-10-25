@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -169,6 +171,27 @@ class SshIntegrationTest {
         }
         val uploads = discoverHerdrHost(connection, "~/.local/bin/herdr", server.session).uploadDir()
         assertTrue(uploads.startsWith("/") && uploads.endsWith("/herdr-android"), uploads)
+      }
+    } finally {
+      dir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun uploadsOfOneNameAtOnceKeepEveryFile() = runBlocking {
+    val dir = Files.createTempDirectory(Path.of(System.getenv("XDG_RUNTIME_DIR") ?: "/tmp"), "hsftp").toFile()
+    try {
+      connected().use { connection ->
+        // Each over a channel of its own, as the app sends the files picked together; sshd allows 10 per connection.
+        val count = 8
+        val paths =
+          (1..count)
+            .map { i -> async(Dispatchers.IO) { connection.openFiles().use { it.upload("файл $i".byteInputStream(), dir.path, "фото.png") { true } } } }
+            .awaitAll()
+        assertEquals(count, paths.toSet().size, "uploads took one name: $paths")
+        assertEquals((1..count).map { "файл $it" }.toSet(), paths.map { File(it).readText() }.toSet())
+        // Nothing else is left, not even the parts.
+        assertEquals(paths.map { it.substringAfterLast('/') }.sorted(), dir.list()!!.sorted())
       }
     } finally {
       dir.deleteRecursively()

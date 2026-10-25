@@ -70,6 +70,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.artalex.herdr.AgentStartProblem
 import dev.artalex.herdr.PromptPart
 import dev.artalex.herdr.R
 import dev.artalex.herdr.core.model.AgentKind
@@ -139,10 +140,17 @@ fun AgentScreen(
   LaunchedEffect(viewModel) {
     viewModel.messages.collect { snackbar.showSnackbar(resources.getString(it.text, it.arg)) }
   }
+  // A start the pane's shell couldn't run is explained in a dialog; snippets that didn't go, in the snackbar.
+  var missingProgram by remember { mutableStateOf<String?>(null) }
   LaunchedEffect(viewModel) {
-    viewModel.startPromptsFailures.collect {
-      val text = if (it.late) R.string.snippets_on_start_late else R.string.snippets_on_start_failed
-      snackbar.showSnackbar(resources.getString(text, it.prompts.joinToString(", ")))
+    viewModel.startProblems.collect {
+      when (it) {
+        is AgentStartProblem.ProgramMissing -> missingProgram = it.executable
+        is AgentStartProblem.SnippetsNotSent -> {
+          val text = if (it.late) R.string.snippets_on_start_late else R.string.snippets_on_start_failed
+          snackbar.showSnackbar(resources.getString(text, it.prompts.joinToString(", ")))
+        }
+      }
     }
   }
   LaunchedEffect(viewModel) { viewModel.opened.collect { onSwitchPane(viewModel.server.id, it) } }
@@ -151,7 +159,8 @@ fun AgentScreen(
   var confirmClose by remember { mutableStateOf(false) }
   var filesOpen by remember { mutableStateOf(false) }
   var editSnippets by remember { mutableStateOf(false) }
-  var prompt by remember { mutableStateOf(TextFieldValue()) }
+  // In the view model, which outlives this composition: a refused prompt comes back to it after a rotation too.
+  val draft = viewModel.draft
   val promptFocus = remember { FocusRequester() }
   var focusPrompt by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
@@ -175,7 +184,7 @@ fun AgentScreen(
       when {
         part is PromptPart.Failed -> scope.launch { snackbar.showSnackbar(resources.getString(R.string.share_not_sent, part.name, part.error)) }
         hasAgent -> {
-          prompt = prompt.with(part)
+          draft.value = draft.value.with(part)
           focusPrompt = true
         }
         else -> {
@@ -271,6 +280,12 @@ fun AgentScreen(
         ctrl = false
       }
       val phase by viewModel.stream.phase.collectAsStateWithLifecycle()
+      // A stream key the stream didn't take, as when it broke a moment ago: one note at a time, as on the terminal screen.
+      LaunchedEffect(viewModel.stream) {
+        viewModel.stream.undelivered.collect {
+          if (snackbar.currentSnackbarData == null) launch { snackbar.showSnackbar(resources.getString(R.string.terminal_input_lost)) }
+        }
+      }
       LazyRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -286,12 +301,12 @@ fun AgentScreen(
       }
       if (pane?.agent != null) {
         PromptRow(
-          value = prompt,
+          value = draft.value,
           onValueChange = { next ->
-            val typed = if (ctrl) typedChar(prompt, next) else null
+            val typed = if (ctrl) typedChar(draft.value, next) else null
             when {
               next.text == sentWithCtrl[0] -> Unit
-              typed == null -> prompt = next
+              typed == null -> draft.value = next
               else -> {
                 // Ctrl goes with the next character typed: a Latin letter goes to the agent as Ctrl and that letter,
                 // anything else into the prompt as usual.
@@ -301,7 +316,7 @@ fun AgentScreen(
                   viewModel.sendKeys(listOf("ctrl+$letter"))
                   sentWithCtrl[0] = next.text
                 } else {
-                  prompt = next
+                  draft.value = next
                 }
               }
             }
@@ -311,15 +326,16 @@ fun AgentScreen(
           keyboard = if (ctrl) KeyboardOptions(keyboardType = KeyboardType.PasswordVisible, autoCorrectEnabled = false) else KeyboardOptions.Default,
           focus = promptFocus,
           starting = view?.starting == true,
+          sending = draft.sending,
           snippets = {
             SnippetsMenu(
               snippets,
-              canSave = prompt.text.isNotBlank() && snippets.none { it.text == prompt.text.trim() },
+              canSave = draft.value.text.isNotBlank() && snippets.none { it.text == draft.value.text.trim() },
               onInsert = {
-                prompt = prompt.withSnippet(it)
+                draft.value = draft.value.withSnippet(it)
                 focusPrompt = true
               },
-              onSave = { viewModel.saveSnippet(prompt.text) },
+              onSave = { viewModel.saveSnippet(draft.value.text) },
               onEdit = {
                 // The dialog offers the server's agents for the snippets that go to them when they start.
                 viewModel.loadAgents()
@@ -327,10 +343,7 @@ fun AgentScreen(
               },
             )
           },
-          onSend = {
-            viewModel.sendPrompt(it)
-            prompt = TextFieldValue()
-          },
+          onSend = viewModel::sendPrompt,
         )
       }
     }
@@ -345,7 +358,7 @@ fun AgentScreen(
       onWorkspace = viewModel::setFilesWorkspace,
       onInsertPath = { path ->
         if (pane?.agent != null) {
-          prompt = prompt.withPath(path)
+          draft.value = draft.value.withPath(path)
           focusPrompt = true
         } else {
           // A shell has no prompt field here; its terminal can paste the path.
@@ -380,6 +393,33 @@ fun AgentScreen(
       onDismiss = { confirmClose = false },
     )
   }
+
+  missingProgram?.let { program ->
+    MissingProgramDialog(
+      program,
+      onCopy = {
+        missingProgram = null
+        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(LOGIN_SHELLS_SETTING, LOGIN_SHELLS_SETTING))
+        scope.launch { snackbar.showSnackbar(resources.getString(R.string.agent_missing_copied)) }
+      },
+      onDismiss = { missingProgram = null },
+    )
+  }
+}
+
+/** herdr's setting for login shells in panes: they read the profile, and see the programs a terminal sees. */
+private const val LOGIN_SHELLS_SETTING = "[terminal]\nshell_mode = \"login\""
+
+/** The agent didn't start: the pane's shell has no [program]. Tells why it may be so and what to set on the host. */
+@Composable
+private fun MissingProgramDialog(program: String, onCopy: () -> Unit, onDismiss: () -> Unit) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(stringResource(R.string.agent_missing_title)) },
+    text = { Text(stringResource(R.string.agent_missing_text, program, LOGIN_SHELLS_SETTING)) },
+    confirmButton = { TextButton(onClick = onCopy, modifier = Modifier.testTag("copyLoginShells")) { Text(stringResource(R.string.agent_missing_copy)) } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.agent_missing_ok)) } },
+  )
 }
 
 /**
@@ -548,7 +588,7 @@ private fun CloseDialog(pane: PaneInfo, board: Board?, onConfirm: () -> Unit, on
 
 /**
  * The prompt, with [snippets] before it. While a just-started agent isn't ready, text can be typed but not sent: herdr
- * would refuse it.
+ * would refuse it. Nor while the previous prompt is [sending]: one at a time, they reach the agent in order.
  */
 @Composable
 private fun PromptRow(
@@ -557,8 +597,9 @@ private fun PromptRow(
   keyboard: KeyboardOptions,
   focus: FocusRequester,
   starting: Boolean,
+  sending: Boolean,
   snippets: @Composable () -> Unit,
-  onSend: (String) -> Unit,
+  onSend: () -> Unit,
 ) {
   Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
     snippets()
@@ -570,7 +611,7 @@ private fun PromptRow(
       maxLines = 4,
       modifier = Modifier.weight(1f).focusRequester(focus).testTag("prompt"),
     )
-    IconButton(onClick = { onSend(value.text) }, enabled = value.text.isNotBlank() && !starting, modifier = Modifier.testTag("sendPrompt")) {
+    IconButton(onClick = onSend, enabled = value.text.isNotBlank() && !starting && !sending, modifier = Modifier.testTag("sendPrompt")) {
       Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.agent_send))
     }
   }

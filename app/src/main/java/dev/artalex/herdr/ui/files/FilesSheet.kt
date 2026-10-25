@@ -86,10 +86,10 @@ import dev.artalex.herdr.core.files.FileShelf
 import dev.artalex.herdr.core.files.FoundFile
 import dev.artalex.herdr.core.files.ScanEntry
 import dev.artalex.herdr.core.files.ScanState
+import dev.artalex.herdr.core.files.Transfer
+import dev.artalex.herdr.core.files.Upload
 import dev.artalex.herdr.files.FileTransfers
 import dev.artalex.herdr.files.Opening
-import dev.artalex.herdr.files.Transfer
-import dev.artalex.herdr.files.Upload
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -281,34 +281,40 @@ private fun ScopeSwitch(workspace: Boolean, onChange: (Boolean) -> Unit) {
 @Composable
 private fun PathField(add: suspend (String) -> AddResult?) {
   var text by rememberSaveable { mutableStateOf("") }
-  var error by remember { mutableStateOf<Int?>(null) }
+  var error by remember { mutableStateOf<String?>(null) }
+  // A lookup under way: another one for the same path would only race it.
+  var busy by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val focus = LocalFocusManager.current
-  val submit: () -> Unit = {
+  val resources = LocalResources.current
+  val submit: () -> Unit = submit@{
+    if (busy) return@submit
     val typed = text
+    busy = true
     // Back on the main thread after the lookup: clearing focus touches the views.
     scope.launch(Dispatchers.Main.immediate) {
-      val result =
+      error =
         try {
-          add(typed)
+          when (add(typed)) {
+            AddResult.ADDED -> {
+              // Added: the keyboard goes, the list with the new file shows.
+              text = ""
+              focus.clearFocus()
+              null
+            }
+            AddResult.MISSING -> resources.getString(R.string.files_path_missing)
+            AddResult.NOT_A_FILE -> resources.getString(R.string.files_path_not_file)
+            null -> resources.getString(R.string.files_no_connection)
+          }
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {
+          // The host was reached, or not for long: say what went wrong rather than that there is no connection.
           Log.w("HerdrFiles", "adding $typed failed: ${e.message}")
-          null
+          resources.getString(R.string.files_path_failed, e.message ?: e.javaClass.simpleName)
+        } finally {
+          busy = false
         }
-      error =
-        when (result) {
-          AddResult.ADDED -> null
-          AddResult.MISSING -> R.string.files_path_missing
-          AddResult.NOT_A_FILE -> R.string.files_path_not_file
-          null -> R.string.files_no_connection
-        }
-      if (result == AddResult.ADDED) {
-        // Added: the keyboard goes, the list with the new file shows.
-        text = ""
-        focus.clearFocus()
-      }
     }
   }
   OutlinedTextField(
@@ -320,9 +326,9 @@ private fun PathField(add: suspend (String) -> AddResult?) {
     singleLine = true,
     label = { Text(stringResource(R.string.files_path_hint)) },
     isError = error != null,
-    supportingText = error?.let { { Text(stringResource(it)) } },
+    supportingText = error?.let { { Text(it) } },
     trailingIcon = {
-      IconButton(onClick = submit, enabled = text.isNotBlank(), modifier = Modifier.testTag("addPath")) {
+      IconButton(onClick = submit, enabled = text.isNotBlank() && !busy, modifier = Modifier.testTag("addPath")) {
         Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.files_path_add))
       }
     },
@@ -334,9 +340,10 @@ private fun PathField(add: suspend (String) -> AddResult?) {
 
 @Composable
 private fun FoundRow(file: FoundFile, transfer: Transfer?, home: String?, onOpen: () -> Unit, onCancel: () -> Unit) {
+  val error = transfer?.error
   val status =
     when {
-      transfer?.error != null -> stringResource(R.string.files_download_failed, transfer.error)
+      error != null -> stringResource(R.string.files_download_failed, error)
       transfer != null -> stringResource(R.string.files_downloading, transfer.percent)
       file.gone -> stringResource(R.string.files_gone)
       file.fresh -> stringResource(R.string.files_downloaded)
