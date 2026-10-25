@@ -2,6 +2,7 @@ package dev.artalex.herdr.e2e
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.content.Intent
 import android.service.notification.StatusBarNotification
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -34,6 +36,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -255,6 +258,24 @@ class NotificationsE2eTest {
       // The phone's key opens after the first unlock, so the check gets through with the screen locked.
       waitFor("check while locked") { container.notifications.lastCheck.value!!.let { it.atMs > first && it.reached == 1 } }
       assertEquals(Alerts.BLOCKED_CHANNEL, waitForAlert(Alerts.BLOCKED_CHANNEL).notification.channelId)
+    }
+  }
+
+  @Test
+  fun recentAppsOpenTheListRatherThanAnOldNotificationsAgent() {
+    // The recent apps start the activity of a task anew with the intent the task began with, marked as from history:
+    // after a crash, a notification tapped long before opened its agent again.
+    val fromNotification = Alerts.intentFor(context, HostFixture.SERVER_ID, agent)
+    val fromRecents = Intent(context, MainActivity::class.java).putExtras(fromNotification).addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
+    ActivityScenario.launch<MainActivity>(fromRecents).use {
+      shotOnFailure(compose, "recentAppsOpenTheListRatherThanAnOldNotificationsAgent") {
+        waitForAgentOnList()
+        compose.waitForIdle()
+        assertTrue("the list should stay", compose.onAllNodes(hasTestTag("quickKeys")).fetchSemanticsNodes().isEmpty())
+        // The notification itself still opens the agent.
+        context.startActivity(fromNotification)
+        compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 15_000)
+      }
     }
   }
 

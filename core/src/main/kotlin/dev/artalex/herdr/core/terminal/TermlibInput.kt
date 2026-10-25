@@ -3,14 +3,19 @@ package dev.artalex.herdr.core.terminal
 import java.io.ByteArrayOutputStream
 
 /**
- * Draws faint text (SGR 2) as a dimmer foreground colour, for a terminal that has no faint: termlib, whose libvterm
- * ignores SGR 2. Claude Code shows its prompt suggestion only as faint text, which there looked as if typed.
+ * Terminal output as termlib can take it. Its libvterm lacks two things:
+ * - faint text (SGR 2), which it ignores: such text is drawn as a dimmer foreground colour instead. Claude Code shows
+ *   its prompt suggestion only as faint text, which there looked as if typed;
+ * - a bound on CSI parameters: a 17th one lands on the parser's callback pointer, and the app dies in native code at
+ *   the next sequence. herdr writes 17 for a cell with every attribute and two RGB colours, and the dim colour adds
+ *   more. A longer SGR is split between whole attributes; any other CSI that long is dropped. (Vim bounds its libvterm
+ *   since patch 9.2.0279; termlib 0.3.14 doesn't.)
  *
  * One per byte stream: it keeps the pen between calls, and an escape sequence cut at the end of a chunk waits for the
  * next one. Colours follow libvterm's palette, so a dimmed colour is the drawn one at half brightness; text in the
  * default colour is drawn white, as termlib does by default.
  */
-class FaintToColor {
+class TermlibInput {
   private var faint = false
   private var fg: Fg = Fg.Default
   private var carry = ByteArray(0)
@@ -43,15 +48,20 @@ class FaintToColor {
       val paramsEnd = j
       while (j < input.size && input[j] in 0x20..0x2F) j++
       if (j == input.size) {
-        // Unfinished; a runaway one goes through as it is rather than piling up.
-        if (input.size - i <= MAX_CARRY) carry = input.copyOfRange(i, input.size) else out.write(input, i, input.size - i)
+        // Unfinished. A runaway one is dropped rather than piling up: none that long fits libvterm.
+        if (input.size - i <= MAX_CARRY) carry = input.copyOfRange(i, input.size)
         break
       }
       val params = String(input, i + 2, paramsEnd - i - 2, Charsets.US_ASCII)
-      if (input[j] == 'm'.code.toByte() && paramsEnd == j && params.all { it.isDigit() || it == ';' || it == ':' }) {
-        out.write(sgr(params))
-      } else {
-        out.write(input, i, j + 1 - i)
+      when {
+        // Cut short by some other byte, which libvterm may read the parameters on past: the sequence goes, the byte stays.
+        input[j] !in 0x40..0x7E -> {
+          i = j
+          continue
+        }
+        input[j] == 'm'.code.toByte() && paramsEnd == j && params.all { it.isDigit() || it == ';' || it == ':' } -> out.write(sgr(params))
+        fields(params) > MAX_FIELDS -> Unit
+        else -> out.write(input, i, j + 1 - i)
       }
       i = j + 1
     }
@@ -60,8 +70,10 @@ class FaintToColor {
 
   private fun sgr(params: String): ByteArray {
     val wasFaint = faint
+    var fgSet = false
     val parts = params.split(';')
-    val kept = mutableListOf<String>()
+    // Whole attributes, a colour with its arguments: the sequence may be split between them.
+    val attributes = mutableListOf<String>()
     var k = 0
     while (k < parts.size) {
       val part = parts[k]
@@ -70,38 +82,72 @@ class FaintToColor {
         code == 0 -> {
           faint = false
           fg = Fg.Default
-          kept += part
+          fgSet = true
+          attributes += part
         }
         code == 2 && part == "2" -> faint = true
         code == 22 -> {
           faint = false
-          kept += part
+          attributes += part
         }
         code in 30..37 -> {
           fg = Fg.Palette(code - 30)
-          kept += part
+          fgSet = true
+          attributes += part
         }
         code in 90..97 -> {
           fg = Fg.Palette(code - 90 + 8)
-          kept += part
+          fgSet = true
+          attributes += part
         }
         code == 39 -> {
           fg = Fg.Default
-          kept += part
+          fgSet = true
+          attributes += part
         }
         // Extended colours: their arguments follow as more parameters, unless written with colons.
         code == 38 || code == 48 || code == 58 -> {
-          val args = if (':' in part) part.split(':').drop(1).filter { it.isNotEmpty() } else extendedArgs(parts, k)
-          if (code == 38) fg = extendedColour(args) ?: fg
-          kept += if (':' in part) listOf(part) else parts.subList(k, k + 1 + args.size)
-          if (':' !in part) k += args.size
+          val colons = ':' in part
+          val args = if (colons) part.split(':').drop(1).filter { it.isNotEmpty() } else extendedArgs(parts, k)
+          if (code == 38) {
+            extendedColour(args)?.let {
+              fg = it
+              fgSet = true
+            }
+          }
+          attributes += if (colons) part else parts.subList(k, k + 1 + args.size).joinToString(";")
+          if (!colons) k += args.size
         }
-        else -> kept += part
+        else -> attributes += part
       }
       k++
     }
-    if (faint) kept += dimmed(fg) else if (wasFaint) kept += fg.sgr()
-    return if (kept.isEmpty()) ByteArray(0) else "\u001b[${kept.joinToString(";")}m".toByteArray(Charsets.US_ASCII)
+    // Faint text ending takes its colour back, unless the sequence sets one itself.
+    if (faint) attributes += dimmed(fg) else if (wasFaint && !fgSet) attributes += fg.sgr()
+    return sequences(attributes)
+  }
+
+  /** SGR sequences of [attributes] in order, as few as libvterm's [MAX_FIELDS] parameters each allow. */
+  private fun sequences(attributes: List<String>): ByteArray {
+    val out = ByteArrayOutputStream()
+    val sequence = mutableListOf<String>()
+    var used = 0
+    fun flush() {
+      if (sequence.isEmpty()) return
+      out.write("\u001b[${sequence.joinToString(";")}m".toByteArray(Charsets.US_ASCII))
+      sequence.clear()
+      used = 0
+    }
+    for (attribute in attributes) {
+      val n = fields(attribute)
+      // No sequence can carry it.
+      if (n > MAX_FIELDS) continue
+      if (used + n > MAX_FIELDS) flush()
+      sequence += attribute
+      used += n
+    }
+    flush()
+    return out.toByteArray()
   }
 
   private fun extendedArgs(parts: List<String>, k: Int): List<String> =
@@ -153,6 +199,11 @@ class FaintToColor {
   private companion object {
     const val ESC = 0x1b.toByte()
     const val MAX_CARRY = 256
+
+    /** Parameters libvterm keeps for a CSI (CSI_ARGS_MAX); a subparameter after a colon takes one too. */
+    const val MAX_FIELDS = 16
+
+    fun fields(params: String) = params.count { it == ';' || it == ':' } + 1
 
     /** libvterm's 16 ANSI colours (pen.c), which termlib keeps. */
     val ANSI =

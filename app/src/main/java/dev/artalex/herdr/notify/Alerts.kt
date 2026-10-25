@@ -87,10 +87,8 @@ class Alerts(private val context: Context) {
   private fun shown(serverId: String): List<StatusBarNotification> =
     manager.activeNotifications.filter { it.id == ALERT_ID && it.tag?.substringBefore('/') == serverId }
 
-  private fun openAgent(serverId: String, paneId: String): PendingIntent {
-    val intent = MainActivity.intent(context).setIdentifier(tag(serverId, paneId)).putExtra(EXTRA_SERVER, serverId).putExtra(EXTRA_PANE, paneId)
-    return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-  }
+  private fun openAgent(serverId: String, paneId: String): PendingIntent =
+    PendingIntent.getActivity(context, 0, intentFor(context, serverId, paneId), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
   companion object {
     const val BLOCKED_CHANNEL = "agent-blocked"
@@ -103,6 +101,10 @@ class Alerts(private val context: Context) {
     private const val EXTRA_STATUS = "dev.artalex.herdr.extra.STATUS"
 
     fun tag(serverId: String, paneId: String) = "$serverId/$paneId"
+
+    /** The intent a notification about pane [paneId] of server [serverId] opens the app with; see [agentOf]. */
+    fun intentFor(context: Context, serverId: String, paneId: String): Intent =
+      MainActivity.intent(context).setIdentifier(tag(serverId, paneId)).putExtra(EXTRA_SERVER, serverId).putExtra(EXTRA_PANE, paneId)
 
     /** The agent a tapped notification opens; null for any other intent. */
     fun agentOf(intent: Intent?): Agent? {

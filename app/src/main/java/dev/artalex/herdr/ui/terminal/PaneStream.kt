@@ -5,7 +5,7 @@ import dev.artalex.herdr.Server
 import dev.artalex.herdr.core.host.HerdrHost
 import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.terminal.CloseReason
-import dev.artalex.herdr.core.terminal.FaintToColor
+import dev.artalex.herdr.core.terminal.TermlibInput
 import dev.artalex.herdr.core.terminal.TerminalEvent
 import dev.artalex.herdr.core.terminal.TerminalSession
 import kotlin.coroutines.cancellation.CancellationException
@@ -163,13 +163,13 @@ class PaneStream(private val server: Server, private val paneId: String) {
             return@launch
           }
           session = opened
-          // termlib draws no faint text; each stream starts with a full frame, so a fresh pen is right.
-          val faint = FaintToColor()
+          // As termlib can take it; each stream starts with a full frame, so a fresh pen is right.
+          val input = TermlibInput()
           opened.events.collect { event ->
             when (event) {
               is TerminalEvent.Frame -> {
                 if (_phase.value != TerminalPhase.Live) _phase.value = TerminalPhase.Live
-                emulator.writeInput(faint.filter(event.bytes))
+                emulator.writeInput(input.filter(event.bytes))
               }
               is TerminalEvent.Closed -> {
                 _phase.value = if (event.reason == CloseReason.NeedsTakeover) TerminalPhase.NeedsTakeover else TerminalPhase.Closed(event.reason)

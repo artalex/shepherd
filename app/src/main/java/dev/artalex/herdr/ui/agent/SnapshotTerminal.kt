@@ -7,14 +7,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import dev.artalex.herdr.core.terminal.FaintToColor
+import dev.artalex.herdr.core.terminal.TermlibInput
 import dev.artalex.herdr.ui.common.rememberTerminalTypeface
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.TerminalEmulatorFactory
 
 /**
  * A read-only terminal showing one rendered screen of a pane (`pane.read` in ANSI format).
- * Each new [text] repaints the whole grid; nothing is ever sent back. Faint text comes out in a dimmer colour.
+ * Each new [text] repaints the whole grid; nothing is ever sent back. It goes in as termlib can take it ([TermlibInput]).
  *
  * Links in it don't open. The grid takes its width from the pane's rectangle on the desktop, not from the client the
  * screen was drawn for, so the rows that client fills end short of the grid's edge: termlib couldn't join a link
@@ -26,7 +26,7 @@ fun SnapshotTerminal(text: String, rows: Int, cols: Int, modifier: Modifier = Mo
   LaunchedEffect(rows, cols) { emulator.resize(rows, cols) }
   LaunchedEffect(text, rows, cols) {
     // Reset attributes, clear, home, hide the cursor: the snapshot's cursor position means nothing here.
-    emulator.writeInput(FaintToColor().filter((RESET + text).toByteArray(Charsets.UTF_8)))
+    emulator.writeInput(TermlibInput().filter((RESET + text).toByteArray(Charsets.UTF_8)))
   }
   // termlib draws its canvas without clipping; with the keyboard up it would cover the top bar.
   Box(modifier.clipToBounds()) {

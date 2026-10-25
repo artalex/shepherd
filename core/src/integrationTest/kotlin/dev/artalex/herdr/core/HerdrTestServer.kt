@@ -40,7 +40,7 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
   val dir: Path = Files.createTempDirectory(Path.of(System.getenv("XDG_RUNTIME_DIR") ?: "/tmp"), "hdrt")
   val session = if (isolatedConfig) "it" else "hdrt-" + dir.fileName.toString().takeLast(8).lowercase()
   private val env =
-    (if (isolatedConfig) mapOf("XDG_CONFIG_HOME" to "$dir/c", "XDG_STATE_HOME" to "$dir/s") else emptyMap()) +
+    (if (isolatedConfig) mapOf("XDG_CONFIG_HOME" to "$dir/c", "XDG_STATE_HOME" to "$dir/s") else mapOf("HERDR_CONFIG_PATH" to "${ownConfig()}")) +
       ("PATH" to "${fakeClaudeDir()}:${System.getenv("PATH")}")
   private val server: Process = start(listOf(binary, "--session", session, "server"), File("$dir/server.log"))
   val socket: String
@@ -63,6 +63,12 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
       return response.getValue("result").jsonObject
     }
   }
+
+  /**
+   * Settings of a named session's own: the user's may make pane shells login shells, and the profile they read would put
+   * the real claude before [FAKE_CLAUDE].
+   */
+  private fun ownConfig(): Path = dir.resolve("config.toml").also { Files.writeString(it, "onboarding = false\n") }
 
   private fun fakeClaudeDir(): Path {
     val bin = Files.createDirectories(dir.resolve("bin"))

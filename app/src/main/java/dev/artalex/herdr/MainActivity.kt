@@ -34,8 +34,10 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    // A restored activity has shown its notification's agent already; a share went with the activity before it.
-    if (savedInstanceState == null) {
+    // A restored activity has shown its notification's agent already; a share went with the activity before it. One
+    // started from the recent apps gets the intent its task began with, which may be a notification or a share long
+    // done: after a crash, say, it would open that agent again instead of the list.
+    if (savedInstanceState == null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) {
       opening = Alerts.agentOf(intent)
       receiveShare(intent)
     }

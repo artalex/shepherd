@@ -104,9 +104,12 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
     waitForServer(running = false)
   }
 
-  /** Starts the session's herdr server again; it brings back the workspaces the session had. */
+  /**
+   * Starts the session's herdr server again, as scripts/e2e.sh starts it: with its settings and the fake claude first on
+   * PATH. It brings back the workspaces the session had.
+   */
   fun startServer() {
-    exec("nohup $HERDR_PATH --session $session server >/dev/null 2>&1 &")
+    exec("PATH=\$HOME/.cache/herdr-android-e2e/bin:\$PATH HERDR_CONFIG_PATH=\$HOME/.cache/herdr-android-e2e/herdr.toml nohup $HERDR_PATH --session $session server >/dev/null 2>&1 &")
     waitForServer(running = true)
   }
 

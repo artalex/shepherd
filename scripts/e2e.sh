@@ -108,8 +108,13 @@ for line in sys.stdin:
 EOF
 chmod +x "$fakebin/claude"
 
+# Settings of the test servers' own: the user's may make pane shells login shells, and the profile they read would put
+# the real claude before the fake one.
+config="$HOME/.cache/herdr-android-e2e/herdr.toml"
+printf 'onboarding = false\n' > "$config"
+
 for session in "${SESSIONS[@]}"; do
-  PATH="$fakebin:$PATH" "$HERDR" --session "$session" server >/dev/null 2>&1 &
+  PATH="$fakebin:$PATH" HERDR_CONFIG_PATH="$config" "$HERDR" --session "$session" server >/dev/null 2>&1 &
   herdr_pids+=($!)
   for _ in $(seq 1 50); do
     "$HERDR" --session "$session" status --json 2>/dev/null | grep -q '"running":true' && break

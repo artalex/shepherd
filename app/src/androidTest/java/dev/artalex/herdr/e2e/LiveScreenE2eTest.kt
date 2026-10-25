@@ -184,6 +184,17 @@ class LiveScreenE2eTest {
   private fun printFaint(paneId: String) =
     fixture.type(paneId, "clear; printf '\\033[2m%s\\033[0m\\n\\n❯ напиши \\033[2mтесты для парсера\\033[0m\\n' $FAINT_BLOCKS")
 
+  /**
+   * Prints a faint word and then blocks in bold and two RGB colours, as Codex's dialogs end a hint with its key, and a
+   * row of blocks with every attribute in those colours: herdr writes that style as 17 parameters itself.
+   */
+  private fun printLongStyles(paneId: String) =
+    fixture.type(
+      paneId,
+      "clear; printf '\\033[2;48;2;72;39;62m continue \\033[0;1;38;2;255;160;255;48;2;72;39;62m%s\\033[0m\\n" +
+        "\\033[1;2;3;4;5;9;38;2;255;160;255;48;2;72;39;62m%s\\033[0m\\n' $FAINT_BLOCKS $FAINT_BLOCKS",
+    )
+
   /** The pane's PTY size as `stty size` reports it, rows to columns. */
   private fun paneSize(paneId: String): Pair<Int, Int> {
     fixture.type(paneId, "clear; stty size")
@@ -336,6 +347,17 @@ class LiveScreenE2eTest {
   }
 
   @Test
+  fun stylesTooLongForLibvtermAreDrawn() {
+    launchApp(compose, "stylesTooLongForLibvtermAreDrawn") {
+      openPane(shell)
+      compose.waitUntilExactlyOneExists(hasTestTag("liveScreen"), 15_000)
+      // An SGR of over 16 parameters overwrote libvterm's memory, and the app died in native code.
+      printLongStyles(shell)
+      compose.waitUntil(10_000) { pixelsOf("liveScreen", PINK) > 2_000 && pixelsOf("liveScreen", DIM_PINK) > 2_000 }
+    }
+  }
+
+  @Test
   fun paneControlledElsewhereShowsSnapshotUntilFree() {
     fixture.holdControl(heldTerminal)
     launchApp(compose, "paneControlledElsewhereShowsSnapshotUntilFree") {
@@ -359,3 +381,7 @@ private val FAINT_BLOCKS = "█".repeat(40)
 
 /** Faint text in the default colour: white at half brightness. */
 private const val DIM_WHITE = 0x7F7F7F
+
+/** The colour of [LiveScreenE2eTest]'s long styles, and its faint version at half brightness. */
+private const val PINK = 0xFFA0FF
+private const val DIM_PINK = 0x7F507F
