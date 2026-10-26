@@ -1,15 +1,21 @@
 package dev.artalex.herdr.ui.agents
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.Servers
 import dev.artalex.herdr.connection.ConnectionState
+import dev.artalex.herdr.core.host.checkFolders
 import dev.artalex.herdr.core.host.resolveFolder
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.rpc.ApiError
+import dev.artalex.herdr.core.servers.FolderChoice
+import dev.artalex.herdr.core.servers.HOME_FOLDER
 import dev.artalex.herdr.core.servers.ServerConfig
+import dev.artalex.herdr.core.servers.folderChoices
+import dev.artalex.herdr.core.servers.shortFolder
 import dev.artalex.herdr.core.snippets.onStart
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.store.Board
@@ -51,8 +57,8 @@ data class ServerSection(val config: ServerConfig, val connection: ConnectionSta
 
 /**
  * The dialog that starts an agent on server [serverId] from the agent list. [agents] are those herdr can start on its
- * machine, null while they are looked up; the folder field starts with [folder], and [folders] are the folders of the
- * server's panes, to pick instead of typing. [missingFolder] is a folder the host turned out not to have, as typed;
+ * machine, null while they are looked up; the folder field starts with [folder], and [folders] are its menu, to pick
+ * instead of typing (see folderChoices). [missingFolder] is a folder the host turned out not to have, as typed;
  * [problem] is why looking up the agents or starting one failed.
  */
 data class NewAgent(
@@ -60,7 +66,7 @@ data class NewAgent(
   val serverTitle: String,
   val agents: List<AgentKind>?,
   val folder: String,
-  val folders: List<String>,
+  val folders: List<FolderChoice>,
   val starting: Boolean = false,
   val missingFolder: String? = null,
   val problem: UiMessage? = null,
@@ -129,14 +135,18 @@ class AgentsViewModel(
   val opened: Flow<Pair<String, String>> = _opened.receiveAsFlow()
 
   /**
-   * Opens the dialog that starts an agent on server [id]. Its folder is the one the last agent from the list started
-   * in, else a pane's, else the home folder: a session without panes offers none of its own.
+   * Opens the dialog that starts an agent on server [id]. Its folder is the one the phone last started an agent in,
+   * else a pane's, else the home folder: a session without panes offers none of its own. Its menu has the home folder
+   * and every folder the server keeps: of its panes and of the agents the phone started. Once the host has been asked,
+   * the folders it no longer has leave, and those in the home folder read `~/…`.
    */
   fun openNewAgent(id: String) {
     val server = servers[id] ?: return
     val config = servers.config(id) ?: return
-    val folders = paneFolders(server)
-    _newAgent.value = NewAgent(id, config.title, agents = null, folder = config.agentFolder ?: folders.firstOrNull() ?: HOME, folders = folders)
+    val panes = paneFolders(server)
+    _newAgent.value =
+      NewAgent(id, config.title, agents = null, folder = config.agentFolder ?: panes.firstOrNull() ?: HOME_FOLDER, folders = folderChoices(null, config.folders))
+    viewModelScope.launch { lookUpFolders(server, config, panes) }
     viewModelScope.launch {
       try {
         val host = server.host
@@ -198,6 +208,33 @@ class AgentsViewModel(
     }
   }
 
+  /** Asks the host which of the folders the dialog of [server] offers are still there, and what its home folder is. */
+  private suspend fun lookUpFolders(server: Server, config: ServerConfig, panes: List<String>) {
+    val check =
+      try {
+        server.host?.transport?.checkFolders(config.folders) ?: return
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        // The menu stays as it is: a folder that is gone is still looked up before an agent starts there.
+        Log.w(TAG, "folder check on ${server.id} failed: ${e.message}")
+        return
+      }
+    // Without the folders the user took off the menu meanwhile.
+    val kept = servers.config(server.id)?.folders.orEmpty()
+    val last = config.agentFolder?.takeIf { it in check.existing && it in kept } ?: panes.firstOrNull()
+    change(server.id) {
+      it.copy(folder = last?.let { folder -> shortFolder(folder, check.home) } ?: HOME_FOLDER, folders = folderChoices(check.home, check.existing.filter { folder -> folder in kept }))
+    }
+  }
+
+  /** Takes [folder] off the dialog's menu and the server's folders, until the app sees it again. */
+  fun forgetFolder(folder: String) {
+    val id = _newAgent.value?.serverId ?: return
+    servers.forgetFolder(id, folder)
+    change(id) { it.copy(folders = it.folders.filter { choice -> choice.folder != folder }) }
+  }
+
   /** Changes the dialog if it is still the one of server [id]. */
   private fun change(id: String, edit: (NewAgent) -> NewAgent) = _newAgent.update { form -> if (form?.serverId == id) edit(form) else form }
 
@@ -206,8 +243,7 @@ class AgentsViewModel(
     server.sessions.state.value.lastSnapshot?.panes.orEmpty().mapNotNull { it.foregroundCwd ?: it.cwd }.distinct()
 
   private companion object {
-    /** The remote home folder, as the folder field takes it. */
-    const val HOME = "~"
+    const val TAG = "HerdrAgents"
 
     /** Keeps polling across a configuration change instead of restarting. */
     const val STOP_TIMEOUT_MS = 5_000L

@@ -7,9 +7,11 @@ import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.servers.ServerList
 import dev.artalex.herdr.core.servers.withActive
 import dev.artalex.herdr.core.servers.withAgentFolder
+import dev.artalex.herdr.core.servers.withFolders
 import dev.artalex.herdr.core.servers.withHostKey
 import dev.artalex.herdr.core.servers.withServer
 import dev.artalex.herdr.core.servers.without
+import dev.artalex.herdr.core.servers.withoutFolder
 import dev.artalex.herdr.core.ssh.HostKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,14 @@ class ServerStore(private val context: Context) {
   fun pinHostKey(id: String, key: HostKey?) = change { it.withHostKey(id, key) }
 
   fun setAgentFolder(id: String, folder: String) = change { it.withAgentFolder(id, folder) }
+
+  /** Server [id] showed [folders]; see [withFolders]. Written only when one of them is new to it, as is rare. */
+  fun addFolders(id: String, folders: Collection<String>) {
+    if (this[id]?.folders?.containsAll(folders) != false) return
+    change { it.withFolders(id, folders) }
+  }
+
+  fun forgetFolder(id: String, folder: String) = change { it.withoutFolder(id, folder) }
 
   fun clear() = change { emptyList() }
 

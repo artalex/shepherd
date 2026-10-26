@@ -32,7 +32,9 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 - Share to Shepherd from any app: pick an agent, and shared text goes into its prompt, shared files go to the machine
   with their paths after the text.
 - Start an agent from the phone: in a new tab next to another agent, or from the list in any folder of the machine,
-  in a session without panes too. Close a pane.
+  in a session without panes too. The folder is typed or picked from a menu: the home folder and every folder the app
+  has seen on the machine, of panes and of agents started from the phone; × takes one off until the app sees it again.
+  Close a pane.
 - Several servers: a server is a host, a user and a herdr session.
 
 ## Requirements

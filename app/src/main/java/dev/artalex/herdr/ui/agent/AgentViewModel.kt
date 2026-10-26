@@ -64,7 +64,7 @@ data class ServerBoard(val serverId: String, val title: String, val board: Board
 /** The screen of pane [paneId] on [server]. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AgentViewModel(
-  servers: Servers,
+  private val servers: Servers,
   val server: Server,
   val paneId: String,
   private val snippetStore: SnippetStore,
@@ -252,12 +252,14 @@ class AgentViewModel(
 
   /**
    * Starts a [kind] agent in this pane, which must be at a shell prompt, as after the previous agent exited. The
-   * snippets for its start go to it once it is ready.
+   * snippets for its start go to it once it is ready; the agent list offers its folder for later agents.
    */
   fun startAgent(kind: AgentKind) =
     act { host ->
-      host.api.startNamedAgent(paneId, kind, cwd)
+      val dir = cwd
+      host.api.startNamedAgent(paneId, kind, dir)
       server.agentStarts.started(paneId, kind, snippetStore.snippets.value.onStart(kind))
+      dir?.let { servers.setAgentFolder(server.id, it) }
     }
 
   /** Opens a tab in this pane's workspace and directory, starts a [kind] agent there and shows it; see [startAgent]. */
@@ -268,6 +270,7 @@ class AgentViewModel(
       val created = host.api.createTab(pane.workspaceId, dir)
       host.api.startNamedAgentInNewPane(created.paneId, kind, dir)
       server.agentStarts.started(created.paneId, kind, snippetStore.snippets.value.onStart(kind))
+      dir?.let { servers.setAgentFolder(server.id, it) }
       _opened.send(created.paneId)
     }
 

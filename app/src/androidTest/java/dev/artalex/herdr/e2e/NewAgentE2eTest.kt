@@ -1,6 +1,9 @@
 package dev.artalex.herdr.e2e
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -19,6 +22,7 @@ import dev.artalex.herdr.core.model.AgentKind
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -32,8 +36,9 @@ import org.junit.Test
 /**
  * Starting an agent from the agent list against real herdr, in a session without panes: the + by the server's name,
  * a folder the host doesn't have, the agent in a workspace of its own, and the next one in a tab next to it, in the
- * folder the app remembered. agent.start runs the fake `claude` that scripts/e2e.sh puts first on the e2e servers'
- * PATH. The session is the stopped server test's, emptied first: that test needs only the workspace it makes itself.
+ * folder the app remembered; the folder menu with every folder the app has seen. agent.start runs the fake `claude`
+ * that scripts/e2e.sh puts first on the e2e servers' PATH. The session is the stopped server test's, emptied first:
+ * that test needs only the workspace it makes itself.
  */
 @OptIn(ExperimentalTestApi::class)
 class NewAgentE2eTest {
@@ -42,6 +47,7 @@ class NewAgentE2eTest {
 
   private lateinit var fixture: HostFixture
   private lateinit var folder: String
+  private lateinit var home: String
   private val container get() = ApplicationProvider.getApplicationContext<HerdrApp>().container
 
   @Before
@@ -51,6 +57,7 @@ class NewAgentE2eTest {
     fixture.closeWorkspaces()
     // A folder of the test's own, as the host resolves it.
     folder = fixture.exec("mkdir -p ~/.cache/herdr-android-e2e && cd \"$(mktemp -d ~/.cache/herdr-android-e2e/agent-XXXXX)\" && pwd -P").trim()
+    home = fixture.exec("cd ~ && pwd -P").trim()
     fixture.connectApp(container)
   }
 
@@ -63,6 +70,17 @@ class NewAgentE2eTest {
   }
 
   private fun JsonObject.field(name: String): String? = get(name)?.jsonPrimitive?.contentOrNull
+
+  /** [path], a folder in the home folder, as the folder field shows it. */
+  private fun short(path: String): String = "~/" + path.removePrefix("$home/")
+
+  /** The folders the open folder menu lists, top to bottom. */
+  private fun folderOptions(): List<String> =
+    compose
+      .onAllNodes(SemanticsMatcher("is a folder option") { it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("folderOption-") == true })
+      .fetchSemanticsNodes()
+      .sortedBy { it.positionInRoot.y }
+      .map { it.config[SemanticsProperties.TestTag].removePrefix("folderOption-") }
 
   /** Opens the dialog that starts an agent on the e2e server, once it has looked up the machine's agents. */
   private fun openNewAgent() {
@@ -101,10 +119,10 @@ class NewAgentE2eTest {
       sendPrompt("агент из списка")
       fixture.waitForScreen(checkNotNull(first.field("pane_id")), pump = { compose.waitForIdle() }) { it.contains("агент из списка") }
 
-      // The next agent from the list is offered the same folder, and gets a tab next to the first one.
+      // The next agent from the list is offered the same folder, from the home folder, and gets a tab next to the first one.
       compose.onNodeWithContentDescription(text(R.string.agent_back)).performClick()
       openNewAgent()
-      compose.onNodeWithTag("newAgentFolder").assert(hasText(folder))
+      compose.waitUntilExactlyOneExists(hasTestTag("newAgentFolder") and hasText(short(folder)), 10_000)
       compose.onNodeWithTag("startNewAgent").performClick()
       val panes = fixture.waitForPanes(pump = { compose.waitForIdle() }) { panes -> panes.size == 2 && panes.all { it.field("agent") == "claude" } }
       val second = panes.single { it.field("pane_id") != first.field("pane_id") }
@@ -112,6 +130,74 @@ class NewAgentE2eTest {
       assertNotEquals("the second agent should get its own tab", first.field("tab_id"), second.field("tab_id"))
       sendPrompt("второй агент")
       fixture.waitForScreen(checkNotNull(second.field("pane_id")), pump = { compose.waitForIdle() }) { it.contains("второй агент") }
+    }
+  }
+
+  @Test
+  fun folderMenuOffersTheHomeFolderAndTheFoldersAgentsStartedIn() {
+    // Folders the phone started agents in before; the last one has gone from the host since.
+    val beta = "$folder/beta"
+    val alpha = "$folder/Alpha"
+    val gone = "$folder/gone"
+    fixture.exec("mkdir -- '$beta' '$alpha' '$gone'")
+    for (path in listOf(beta, alpha, gone)) container.servers.setAgentFolder(HostFixture.SERVER_ID, path)
+    fixture.exec("rmdir -- '$gone'")
+    launchApp(compose, "folderMenuOffersTheHomeFolderAndTheFoldersAgentsStartedIn") {
+      compose.waitUntilExactlyOneExists(hasText(text(R.string.agents_empty)), 30_000)
+      openNewAgent()
+      // Instead of the folder that is gone, the field has the home folder: the session has no panes.
+      compose.waitUntilExactlyOneExists(hasTestTag("newAgentFolder") and hasText("~"), 10_000)
+      compose.onNodeWithTag("newAgentFolders", useUnmergedTree = true).performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("folderOption-~"), 5_000)
+      Screens.take(compose, "17c-new-agent-folders")
+      assertEquals(listOf("~", short(alpha), short(beta)), folderOptions())
+      // The × takes a folder off the menu and out of the server's folders; the home folder has none.
+      compose.onNodeWithTag("forgetFolder-${short(alpha)}").performClick()
+      compose.waitUntilDoesNotExist(hasTestTag("folderOption-${short(alpha)}"), 5_000)
+      assertEquals(listOf("~", short(beta)), folderOptions())
+      assertEquals(0, compose.onAllNodes(hasTestTag("forgetFolder-~")).fetchSemanticsNodes().size)
+      compose.onNodeWithTag("folderOption-${short(beta)}").performClick()
+      compose.onNodeWithTag("newAgentFolder").assert(hasText(short(beta)))
+      // A tap on the field opens the menu too, and typing a folder of one's own closes it.
+      compose.onNodeWithTag("newAgentFolder").performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("folderOption-~"), 5_000)
+      compose.onNodeWithTag("newAgentFolder").performTextReplacement("${short(beta)}/")
+      compose.waitUntilDoesNotExist(hasTestTag("folderOption-~"), 5_000)
+      compose.onNodeWithTag("startNewAgent").performClick()
+      val pane = fixture.waitForPanes(pump = { compose.waitForIdle() }) { panes -> panes.any { it.field("agent") == "claude" } }.single()
+      assertEquals(beta, pane.field("cwd"))
+      val config = checkNotNull(container.servers.config(HostFixture.SERVER_ID))
+      assertEquals(beta, config.agentFolder)
+      assertEquals(listOf(beta, gone), config.folders)
+    }
+  }
+
+  @Test
+  fun foldersOfPanesStayOnTheMenuOnceThePanesClose() {
+    // A pane in a folder of its own, as one opened on the computer.
+    val seen = "$folder/seen"
+    fixture.exec("mkdir -- '$seen'")
+    val pane =
+      fixture
+        .raw("workspace.create", buildJsonObject {
+          put("label", "e2e-seen")
+          put("cwd", seen)
+        })
+        .getValue("root_pane")
+        .jsonObject
+        .getValue("pane_id")
+        .jsonPrimitive
+        .content
+    launchApp(compose, "foldersOfPanesStayOnTheMenuOnceThePanesClose") {
+      // The app has seen the pane: its folder is the server's from now on.
+      compose.scrollListTo(paneTag(pane))
+      compose.waitUntil(10_000) { container.servers.config(HostFixture.SERVER_ID)?.folders == listOf(seen) }
+      fixture.closeWorkspaces()
+      compose.waitUntilExactlyOneExists(hasText(text(R.string.agents_empty)), 15_000)
+      openNewAgent()
+      compose.onNodeWithTag("newAgentFolders", useUnmergedTree = true).performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("folderOption-${short(seen)}"), 10_000)
+      assertEquals(listOf("~", short(seen)), folderOptions())
     }
   }
 

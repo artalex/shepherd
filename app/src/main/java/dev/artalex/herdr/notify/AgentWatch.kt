@@ -153,6 +153,7 @@ class AgentWatch(
         Log.i(TAG, "check: ${config.title} didn't answer: ${e.message}")
         return false
       }
+    servers[config.id]?.seeFolders(snapshot)
     seen(config.id, SessionState.Ready(snapshot, clock()))
     return true
   }

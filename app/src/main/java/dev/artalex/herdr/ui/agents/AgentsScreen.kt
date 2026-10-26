@@ -138,7 +138,7 @@ fun AgentsScreen(
   }
 
   sections?.let { HostKeyDialog(it, onTrust = viewModel::trustHostKey, onDecline = { id -> viewModel.setActive(id, false) }) }
-  newAgent?.let { NewAgentDialog(it, onStart = viewModel::startNewAgent, onDismiss = viewModel::closeNewAgent) }
+  newAgent?.let { NewAgentDialog(it, onStart = viewModel::startNewAgent, onForget = viewModel::forgetFolder, onDismiss = viewModel::closeNewAgent) }
 }
 
 /** The list's bar while a share waits for its agent: the question, what came, and the cross that drops it. */

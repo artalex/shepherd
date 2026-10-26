@@ -68,6 +68,24 @@ suspend fun HerdrTransport.resolveFolder(path: String, timeoutMs: Long = 10_000)
   return out.toString(Charsets.UTF_8).removeSuffix("\n").takeIf { exitStatus == 0 && it.startsWith("/") }
 }
 
+/** The host's home folder as [resolveFolder] gives `~`, and the folders of a [checkFolders] the host still has. */
+data class FolderCheck(val home: String, val existing: List<String>)
+
+/**
+ * Looks up the remote home folder and which of [folders], folders [resolveFolder] gave earlier, the host still has and
+ * lets in. They keep their order.
+ */
+suspend fun HerdrTransport.checkFolders(folders: List<String>, timeoutMs: Long = 10_000): FolderCheck {
+  // A NUL after each folder: a name may hold any other character. A folder one can enter is a directory with x; test
+  // is built in, where a cd would take a subshell for each of what may be many folders.
+  val script = "h=${'$'}(cd -- \"${'$'}HOME\" 2>/dev/null && pwd -P) || exit 1; printf '%s\\0' \"${'$'}h\"; for d; do [ -d \"${'$'}d\" ] && [ -x \"${'$'}d\" ] && printf '%s\\0' \"${'$'}d\"; done; exit 0"
+  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-c", script, "sh") + folders) }
+  val (out, exitStatus) = blockingIoWithDeadline(stream, timeoutMs, "folder check") { stream.input.readAllBytes() to stream.exitStatus() }
+  val names = out.toString(Charsets.UTF_8).split('\u0000').dropLast(1)
+  val home = names.firstOrNull()?.takeIf { exitStatus == 0 && it.startsWith("/") } ?: throw IOException("folder check failed, exit status ${exitStatus ?: "unknown"}")
+  return FolderCheck(home, names.drop(1))
+}
+
 /**
  * Which [AgentKind] executables the host has. A login shell reads the profile, so PATH comes out as in the
  * desktop session herdr runs in, and as in its panes' shells.

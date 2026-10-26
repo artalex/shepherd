@@ -42,6 +42,7 @@ class PanesE2eTest {
   private lateinit var second: String
   private lateinit var shell: String
   private val run = System.currentTimeMillis().toString().takeLast(5)
+  private val container get() = ApplicationProvider.getApplicationContext<HerdrApp>().container
 
   @Before
   fun seed() {
@@ -53,7 +54,6 @@ class PanesE2eTest {
     fixture.fakeClaude(second, "idle")
     shell = fixture.split(second)
 
-    val container = ApplicationProvider.getApplicationContext<HerdrApp>().container
     fixture.connectApp(container)
   }
 
@@ -121,12 +121,15 @@ class PanesE2eTest {
   @Test
   fun claudeStartsInShellPane() {
     launchApp(compose, "claudeStartsInShellPane") {
+      val folder = fixture.panes().single { it.field("pane_id") == shell }.let { it.field("foreground_cwd") ?: it.field("cwd") }
       openPane(shell)
       openMenu("startAgent-claude")
       compose.onNodeWithTag("startAgent-claude").performClick()
       fixture.waitForPanes(pump = { compose.waitForIdle() }) { panes -> panes.any { it.field("pane_id") == shell && it.field("agent") == "claude" } }
       sendPrompt("claude в шелле")
       fixture.waitForScreen(shell, pump = { compose.waitForIdle() }) { it.contains("claude в шелле") }
+      // The next agent from the agent list starts in its folder.
+      compose.waitUntil(5_000) { container.servers.config(HostFixture.SERVER_ID)?.agentFolder == folder }
     }
   }
 
@@ -150,6 +153,8 @@ class PanesE2eTest {
       // The app shows the new pane: a prompt from it lands there.
       sendPrompt("новая сессия")
       fixture.waitForScreen(checkNotNull(created.field("pane_id")), pump = { compose.waitForIdle() }) { it.contains("новая сессия") }
+      // The next agent from the agent list starts in its folder.
+      compose.waitUntil(5_000) { container.servers.config(HostFixture.SERVER_ID)?.agentFolder == created.field("cwd") }
     }
   }
 

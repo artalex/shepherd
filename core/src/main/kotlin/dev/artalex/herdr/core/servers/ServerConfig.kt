@@ -28,8 +28,10 @@ data class ServerConfig(
   val session: String = DEFAULT_SESSION,
   val hostKey: String? = null,
   val active: Boolean = true,
-  /** The folder of the last agent started from the agent list, as the host resolved it; offered for the next one. */
+  /** The folder of the last agent the phone started, as the host resolved it; the next one from the agent list starts there. */
   val agentFolder: String? = null,
+  /** The folders the app has seen on the server, as the host shows them, each once: of its panes and of the agents the phone started; see [folders]. */
+  val seenFolders: List<String> = emptyList(),
 ) {
   val isComplete: Boolean get() = host.isNotBlank() && user.isNotBlank() && port in 1..65535
 
@@ -44,6 +46,9 @@ data class ServerConfig(
   /** The host, and the session unless it is herdr's default one. */
   val defaultTitle: String
     get() = if (session.isBlank() || session.trim() == DEFAULT_SESSION) host.trim() else "${host.trim()} · ${session.trim()}"
+
+  /** Every folder the app knows on the server, [agentFolder] too: up to 2.23 the app kept that one only. */
+  val folders: List<String> get() = (seenFolders + listOfNotNull(agentFolder)).distinct()
 
   /** The accepted host key; null if there is none yet, or it can't be read and the user has to accept it again. */
   val pinnedHostKey: HostKey? get() = hostKey?.let { runCatching { HostKey.decode(it) }.getOrNull() }
@@ -86,14 +91,20 @@ object ServerList {
 
 /**
  * Adds [server], or puts the form's fields into the server with its id. A server keeps its accepted host key, whether
- * it is on and its agent folder: those change through [withHostKey], [withActive] and [withAgentFolder]. Moving it to
- * another host or port forgets the key and the folder, which belonged to the old machine.
+ * it is on and its agent folders: those change through [withHostKey], [withActive] and [withAgentFolder]. Moving it to
+ * another host or port forgets the key and the folders, which belonged to the old machine.
  */
 fun List<ServerConfig>.withServer(server: ServerConfig): List<ServerConfig> {
   val form = server.trimmed()
   val old = firstOrNull { it.id == form.id } ?: return this + form
   val moved = old.host != form.host || old.port != form.port
-  val edited = form.copy(hostKey = if (moved) null else old.hostKey, active = old.active, agentFolder = if (moved) null else old.agentFolder)
+  val edited =
+    form.copy(
+      hostKey = if (moved) null else old.hostKey,
+      active = old.active,
+      agentFolder = if (moved) null else old.agentFolder,
+      seenFolders = if (moved) emptyList() else old.seenFolders,
+    )
   return map { if (it.id == form.id) edited else it }
 }
 
@@ -103,4 +114,17 @@ fun List<ServerConfig>.withActive(id: String, active: Boolean): List<ServerConfi
 
 fun List<ServerConfig>.withHostKey(id: String, key: HostKey?): List<ServerConfig> = map { if (it.id == id) it.copy(hostKey = key?.encode()) else it }
 
-fun List<ServerConfig>.withAgentFolder(id: String, folder: String): List<ServerConfig> = map { if (it.id == id) it.copy(agentFolder = folder) else it }
+/** The phone started an agent in [folder] on server [id]: the folder is the last one, and one of [ServerConfig.folders]. */
+fun List<ServerConfig>.withAgentFolder(id: String, folder: String): List<ServerConfig> =
+  map { if (it.id == id) it.copy(agentFolder = folder, seenFolders = (it.folders + folder).distinct()) else it }
+
+/** Server [id] showed [folders]: those it didn't know join [ServerConfig.folders]. */
+fun List<ServerConfig>.withFolders(id: String, folders: Collection<String>): List<ServerConfig> =
+  map { if (it.id == id && !it.folders.containsAll(folders)) it.copy(seenFolders = (it.folders + folders).distinct()) else it }
+
+/**
+ * The user took [folder] off the folders of server [id], the last one too. Nothing remembers that: the folder comes back
+ * once the app sees it again.
+ */
+fun List<ServerConfig>.withoutFolder(id: String, folder: String): List<ServerConfig> =
+  map { if (it.id == id) it.copy(agentFolder = it.agentFolder?.takeUnless { last -> last == folder }, seenFolders = it.seenFolders - folder) else it }

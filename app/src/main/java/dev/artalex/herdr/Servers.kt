@@ -10,6 +10,8 @@ import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.connection.SessionRepository
 import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.host.HerdrHost
+import dev.artalex.herdr.core.model.SessionSnapshot
+import dev.artalex.herdr.core.servers.FolderSightings
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.store.PerPane
 import dev.artalex.herdr.core.store.SessionState
@@ -39,7 +41,7 @@ import kotlinx.coroutines.launch
 class Server(
   val id: String,
   app: Application,
-  store: ServerStore,
+  private val store: ServerStore,
   keys: KeyVault,
   appScope: CoroutineScope,
   transfers: MutableStateFlow<Int>,
@@ -62,11 +64,15 @@ class Server(
    */
   val drafts = PerPane { PromptDraft() }
 
+  /** Finds the folders of the panes: the server's settings keep every folder seen, for the agent list to offer. */
+  val folders = FolderSightings()
+
   val sessions =
     SessionRepository(connection, scope) {
       inbox.seen(it.snapshot)
       streams.seen(it.snapshot)
       drafts.seen(it.snapshot)
+      seeFolders(it.snapshot)
       onSnapshot(id, it)
     }
   val files = FileTransfers(app, this, transfers)
@@ -79,6 +85,12 @@ class Server(
 
   /** The connected host, if any: screens use it for requests that aren't polling. */
   val host: HerdrHost? get() = (connection.state.value as? ConnectionState.Connected)?.host
+
+  /** Keeps the folders of [snapshot]'s panes that showed up since the previous one; see [FolderSightings]. */
+  fun seeFolders(snapshot: SessionSnapshot) {
+    val new = folders.newIn(snapshot)
+    if (new.isNotEmpty()) store.addFolders(id, new)
+  }
 
   /** Where files of pane [paneId] come from, by the last snapshot; null for a pane it doesn't have yet. */
   fun originOf(paneId: String): FileOrigin? =
@@ -136,6 +148,8 @@ class Servers(
     val server = running.getOrPut(config.id) { create(config.id) }
     store.save(config)
     val saved = store[config.id] ?: return
+    // Another host or session: the folders of its panes are new, though the previous one had them too.
+    if (old != null && !saved.sameConnection(old)) server.folders.reset()
     when {
       old == null -> if (_foreground.value) server.connection.foreground()
       !saved.sameConnection(old) && saved.active && _foreground.value -> server.connection.connect()
@@ -154,8 +168,11 @@ class Servers(
     if (!active) connection.disconnect() else if (_foreground.value) connection.connect()
   }
 
-  /** Remembers [folder] for the next agent started from the agent list on server [id]; the connection stays. */
+  /** The phone started an agent in [folder] on server [id]: the agent list offers it for later agents. The connection stays. */
   fun setAgentFolder(id: String, folder: String) = store.setAgentFolder(id, folder)
+
+  /** The user took [folder] off the agent list's menu of server [id]; it comes back once the app sees it again. */
+  fun forgetFolder(id: String, folder: String) = store.forgetFolder(id, folder)
 
   /** Deletes every server: the e2e tests start from scratch. */
   fun clear() {

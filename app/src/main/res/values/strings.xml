@@ -101,7 +101,7 @@
     <string name="new_agent_folder">Folder</string>
     <string name="new_agent_folder_hint">~ is the home folder</string>
     <string name="new_agent_folder_missing">No such folder on the machine</string>
-    <string name="new_agent_folders">Folders of the panes</string>
+    <string name="new_agent_forget_folder">Remove %1$s from the list</string>
     <string name="new_agent_start">Start</string>
     <string name="new_agent_starting">Starting…</string>
 

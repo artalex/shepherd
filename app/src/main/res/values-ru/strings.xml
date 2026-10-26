@@ -101,7 +101,7 @@
     <string name="new_agent_folder">Папка</string>
     <string name="new_agent_folder_hint">~ — домашняя папка</string>
     <string name="new_agent_folder_missing">На машине нет такой папки</string>
-    <string name="new_agent_folders">Папки панелей</string>
+    <string name="new_agent_forget_folder">Убрать %1$s из списка</string>
     <string name="new_agent_start">Запустить</string>
     <string name="new_agent_starting">Запускаю…</string>
 

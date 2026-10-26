@@ -2,9 +2,11 @@ package dev.artalex.herdr.core
 
 import dev.artalex.herdr.core.host.HostCheck
 import dev.artalex.herdr.core.host.BadSessionName
+import dev.artalex.herdr.core.host.FolderCheck
 import dev.artalex.herdr.core.host.HerdrNotFound
 import dev.artalex.herdr.core.host.HerdrStatusFailed
 import dev.artalex.herdr.core.host.check
+import dev.artalex.herdr.core.host.checkFolders
 import dev.artalex.herdr.core.host.resolveFolder
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.ssh.SshConnection
@@ -219,6 +221,29 @@ class SshIntegrationTest {
         assertNull(transport.resolveFolder("${dir.path}/нет"))
         assertNull(transport.resolveFolder(file.path))
         assertNull(transport.resolveFolder("-P"))
+      }
+    } finally {
+      dir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun foldersAgentsStartedInAreCheckedOnTheHost() = runBlocking {
+    val home = File(System.getProperty("user.home")).canonicalFile
+    val dir = Files.createTempDirectory(Files.createDirectories(home.toPath().resolve(".cache")), "hfolder").toFile().canonicalFile
+    try {
+      val odd = File(dir, "it's a \"folder\"\nin two lines").also { it.mkdir() }
+      val locked = File(dir, "locked").also {
+        it.mkdir()
+        it.setExecutable(false, false)
+      }
+      val file = File(dir, "notes.txt").also { it.writeText("") }
+      connected().use { connection ->
+        val transport = discoverHerdrHost(connection, "~/.local/bin/herdr", server.session).transport
+        // In their order, without those the host doesn't have or won't let in; the home folder resolved, as `~` is.
+        val check = transport.checkFolders(listOf(odd.path, "${dir.path}/нет", file.path, locked.path, dir.path, "-P"))
+        assertEquals(FolderCheck(home.path, listOf(odd.path, dir.path)), check)
+        assertEquals(FolderCheck(home.path, emptyList()), transport.checkFolders(emptyList()))
       }
     } finally {
       dir.deleteRecursively()
