@@ -161,14 +161,23 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
   }
 
   /**
-   * Turns [paneId] into agent [agent] in [state] that asked for the kitty keyboard protocol, as Claude Code does: herdr
-   * then sends keys with their modifiers, Ctrl+Enter as `ESC[13;5u`. It is `cat -v` started as argv0 [agent], so the
-   * pane shows such a key as `^[[13;5u`, and a line as it came once Enter ends it.
+   * Turns [paneId] into agent [agent] in [state] that asked for the kitty keyboard protocol, as Claude Code does; see
+   * [kittyCat].
    */
   fun fakeKittyAgent(paneId: String, state: String, agent: String = "claude") {
-    type(paneId, "(printf '\\033[>1u'; exec -a $agent cat -v)")
-    Thread.sleep(800)
+    kittyCat(paneId, agent)
     reportAgent(paneId, state, agent)
+  }
+
+  /**
+   * Starts in [paneId] a program that asked for the kitty keyboard protocol with Claude Code's flags, which take the
+   * shifted key along: herdr then sends keys with their modifiers, Ctrl+Enter as `ESC[13;5u`, Ctrl+Shift+C as
+   * `ESC[99:67;6u`. It is `cat -v` started as argv0 [argv0], so the pane shows such a key as `^[[13;5u`, and a line as it
+   * came once Enter ends it.
+   */
+  fun kittyCat(paneId: String, argv0: String = "cat") {
+    type(paneId, "(printf '\\033[>5u'; exec -a $argv0 cat -v)")
+    Thread.sleep(800)
   }
 
   fun reportAgent(paneId: String, state: String, agent: String = "claude") {

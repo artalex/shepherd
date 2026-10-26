@@ -1,12 +1,16 @@
 package dev.artalex.herdr.ui.terminal
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.type
 import androidx.lifecycle.ViewModel
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.core.terminal.CloseReason
-import org.connectbot.terminal.ModifierManager
+import dev.artalex.herdr.ui.common.StickyModifiers
+import dev.artalex.herdr.ui.common.charKey
+import dev.artalex.herdr.ui.common.paneKey
+import dev.artalex.herdr.ui.common.pressedKey
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
 
 sealed interface TerminalPhase {
   /** The terminal view hasn't measured itself yet; the stream opens with its size. */
@@ -24,52 +28,65 @@ sealed interface TerminalPhase {
   data class Failed(val message: String) : TerminalPhase
 }
 
-/** Ctrl, Alt and Shift buttons that stay on until the next key, like on a hardware keyboard row. */
-class StickyModifiers : ModifierManager {
-  var ctrl by mutableStateOf(false)
-  var alt by mutableStateOf(false)
-  var shift by mutableStateOf(false)
-
-  override fun isCtrlActive() = ctrl
-
-  override fun isAltActive() = alt
-
-  override fun isShiftActive() = shift
-
-  override fun clearTransients() {
-    ctrl = false
-    alt = false
-    shift = false
-  }
-
-  /** libvterm modifier mask for keys sent from the extra row. */
-  fun mask(): Int = (if (shift) MOD_SHIFT else 0) or (if (alt) MOD_ALT else 0) or (if (ctrl) MOD_CTRL else 0)
-
-  private companion object {
-    const val MOD_SHIFT = 1
-    const val MOD_ALT = 2
-    const val MOD_CTRL = 4
-  }
-}
-
-/** The terminal screen of one pane: its [stream], shared with the pane's agent screen, and the extra keys row. */
+/**
+ * The terminal screen of one pane: its [stream], shared with the pane's agent screen, and the extra keys row.
+ *
+ * A key with modifiers, from the row, a keyboard or the soft keyboard, goes to herdr by name ([PaneKey]); keys and text
+ * without them termlib types into the stream, as it encodes them. The row's [modifiers] are the screen's own: termlib
+ * doesn't see them.
+ */
 class TerminalViewModel(server: Server, paneId: String) : ViewModel() {
   val stream = server.streams.of(paneId)
 
   val modifiers = StickyModifiers()
 
-  /**
-   * Keys from the extra row go through the emulator, which encodes them like the soft keyboard does. The row waits for
-   * a live stream, so the emulator is there.
-   */
+  /** A key of the extra row. The row waits for a live stream, so the emulator is there. */
   fun sendKey(vtermKey: Int) {
-    stream.emulator.value?.dispatchKey(modifiers.mask(), vtermKey)
-    modifiers.clearTransients()
+    val mods = modifiers.take()
+    if (mods.any) stream.sendKey(paneKey(vtermKey, mods)) else stream.emulator.value?.dispatchKey(0, vtermKey)
   }
 
+  /** A character of the extra row; with Shift alone it stays itself, as the row has no other one for it. */
   fun sendChar(char: Char) {
-    stream.emulator.value?.dispatchCharacter(modifiers.mask(), char.code)
-    modifiers.clearTransients()
+    val mods = modifiers.take()
+    if (mods.command) stream.sendKey(charKey(char.code, mods)) else stream.emulator.value?.dispatchCharacter(0, char.code)
+  }
+
+  /**
+   * A key event before termlib handles it: from a keyboard, or a key of the soft keyboard. With modifiers, its own or
+   * set in the row, it goes by name; with the row's Shift alone a key that types gives its character with Shift. termlib
+   * doesn't see it then, and the answer is true.
+   */
+  fun interceptKey(event: ComposeKeyEvent): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    val native = event.nativeKeyEvent
+    val held = modifiers.held()
+    val key = pressedKey(native, held)
+    if (key != null) {
+      modifiers.take()
+      stream.sendKey(key)
+      return true
+    }
+    val shifted = if (held.shift) native.getUnicodeChar(native.metaState or AndroidKeyEvent.META_SHIFT_ON) else 0
+    if (shifted <= 0) return false
+    modifiers.take()
+    stream.emulator.value?.dispatchCharacter(0, shifted)
+    return true
+  }
+
+  /**
+   * Text termlib is about to send while a modifier of the row is on: a soft keyboard hands some characters over as text
+   * rather than as keys, Cyrillic ones always. With Ctrl or Alt one character goes as a key instead, with Shift alone as
+   * a capital; true says so.
+   */
+  fun takeText(text: String): Boolean {
+    val mods = modifiers.held()
+    if (!mods.any || text.isEmpty()) return false
+    val char = text.codePointAt(0)
+    if (Character.charCount(char) != text.length) return false
+    modifiers.take()
+    if (mods.command || Character.isISOControl(char)) stream.sendKey(charKey(char, mods)) else stream.emulator.value?.dispatchCharacter(0, Character.toUpperCase(char))
+    return true
   }
 
   fun paste(text: String) = stream.paste(text)

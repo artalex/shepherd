@@ -190,6 +190,40 @@ class TerminalE2eTest {
     }
   }
 
+  /** Taps the key tagged [tag] of the extra row, scrolling the row to it first. */
+  private fun xkey(tag: String) {
+    compose.onNodeWithTag("extraKeys").performScrollToNode(hasTestTag(tag))
+    compose.onNodeWithTag(tag).performClick()
+  }
+
+  @Test
+  fun modifiersGoWithEveryKey() {
+    // A program with the kitty keyboard protocol, as Claude Code: herdr tells Ctrl+Shift+C from Ctrl+C for it.
+    fixture.kittyCat(pane)
+    launchApp(compose, "modifiersGoWithEveryKey") { scenario ->
+      openTerminal()
+      waitLive()
+      // Ctrl and Shift of the row with a letter of the soft keyboard: Claude Code's copy, not its interrupt, which is
+      // what termlib's libvterm would make of it.
+      xkey("mod-ctrl")
+      xkey("mod-shift")
+      type("c")
+      // Ctrl with a letter a keyboard sends as text, of the Russian layout: the Latin key it shares, C.
+      xkey("mod-ctrl")
+      ime(scenario) { commitText("с", 1) }
+      // Alt with an arrow and Ctrl with End, both of the row.
+      xkey("mod-alt")
+      xkey("xkey-↑")
+      xkey("mod-ctrl")
+      xkey("xkey-End")
+      // A keyboard's own Ctrl+Shift+C, with typing on both sides of it: all in order.
+      type("ab")
+      shell("input keycombination KEYCODE_CTRL_LEFT KEYCODE_SHIFT_LEFT KEYCODE_C")
+      type("cd")
+      waitPane { s -> s.lines().any { it.trim() == "^[[99:67;6u^[[99;5u^[[1;3A^[[1;5Fab^[[99:67;6ucd" } }
+    }
+  }
+
   @Test
   fun busyPaneOffersTakeover() {
     fixture.holdControl(terminal)

@@ -24,6 +24,8 @@ import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
 import dev.artalex.herdr.data.FilesSettings
 import dev.artalex.herdr.data.SnippetStore
+import dev.artalex.herdr.ui.common.PaneKey
+import dev.artalex.herdr.ui.terminal.PaneStream
 import dev.artalex.herdr.ui.terminal.TerminalPhase
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -163,20 +165,27 @@ class AgentViewModel(
   private val _messages = Channel<UiMessage>(Channel.BUFFERED)
   val messages: Flow<UiMessage> = _messages.receiveAsFlow()
 
-  /** Logical keys (`1`, `enter`, `esc`, `up`, `ctrl+c`, …); herdr encodes them for the pane. */
+  /**
+   * Logical keys (`1`, `enter`, `esc`, `up`, `ctrl+shift+c`, …); herdr encodes them for the pane. They go in order with
+   * the other input to the pane ([PaneStream.inOrder]).
+   */
   fun sendKeys(keys: List<String>) =
     act { host ->
-      stream.scrollToBottom()
-      if (pane.value?.pane?.agent != null) host.api.sendAgentKeys(paneId, keys) else host.api.sendPaneKeys(paneId, keys)
+      stream.inOrder {
+        stream.scrollToBottom()
+        if (pane.value?.pane?.agent != null) host.api.sendAgentKeys(paneId, keys) else host.api.sendPaneKeys(paneId, keys)
+      }
     }
 
   /**
-   * A key herdr's API has no name for, such as Home or PgUp ([org.connectbot.terminal.VTermKey]): typed into the live
-   * stream as on the terminal screen. Without a live stream it goes nowhere.
+   * [key] by name, as [sendKeys], or typed into the live stream as on the terminal screen, when herdr's API has no name
+   * for it (Home, PgUp). Without a live stream such a key goes nowhere, and the snackbar says so.
    */
-  fun sendStreamKey(vtermKey: Int) {
-    stream.emulator.value?.dispatchKey(0, vtermKey)
-  }
+  fun sendKey(key: PaneKey) =
+    when (key) {
+      is PaneKey.Named -> sendKeys(listOf(key.name))
+      is PaneKey.Typed -> stream.type(key)
+    }
 
   /** The prompt being written. The server keeps it: it outlives this model, which goes with the screen. */
   val draft = server.drafts.of(paneId)
@@ -197,10 +206,12 @@ class AgentViewModel(
     val text = draft.take() ?: return
     val thenSendNow = now && pane.value?.pane?.agent == AgentKind.CLAUDE.kind
     act(onFailure = draft::failed) { host ->
-      stream.scrollToBottom()
-      host.api.promptAgent(paneId, text)
-      draft.sent()
-      if (thenSendNow) host.api.sendAgentKeys(paneId, listOf(SEND_NOW))
+      stream.inOrder {
+        stream.scrollToBottom()
+        host.api.promptAgent(paneId, text)
+        draft.sent()
+        if (thenSendNow) host.api.sendAgentKeys(paneId, listOf(SEND_NOW))
+      }
     }
   }
 

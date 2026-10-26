@@ -1,5 +1,8 @@
 package dev.artalex.herdr.ui.terminal
 
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.core.host.HerdrHost
@@ -9,7 +12,9 @@ import dev.artalex.herdr.core.terminal.CloseReason
 import dev.artalex.herdr.core.terminal.TermlibInput
 import dev.artalex.herdr.core.terminal.TerminalEvent
 import dev.artalex.herdr.core.terminal.TerminalSession
+import dev.artalex.herdr.ui.common.PaneKey
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -25,6 +30,9 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.connectbot.terminal.TerminalDimensions
 import org.connectbot.terminal.TerminalEmulator
@@ -134,6 +142,24 @@ class PaneStream(private val server: Server, val paneId: String, private val onI
   /** How far up the view may be scrolled, in lines; more than it is once herdr stops at the top of its history. */
   private var scrolledBack = 0
 
+  /**
+   * Input to the pane goes one piece at a time, in the order it comes: typing through the stream, keys by name and
+   * prompts through herdr's API. Two calls of the API would otherwise race each other, and typing would overtake a key.
+   */
+  private val input = Mutex()
+
+  /** When typing last went into the stream, in [SystemClock.uptimeMillis]. */
+  private var typedAt = 0L
+
+  /** The main thread's queue, for plain messages, as termlib posts typing in them. */
+  private val mainQueue = Handler(Looper.getMainLooper())
+
+  /**
+   * While a modifier of the terminal screen's row waits for its key, text termlib types comes here first; true keeps it
+   * from the stream. See [TerminalViewModel.takeText].
+   */
+  var onText: ((String) -> Boolean)? = null
+
   private val _emulator = MutableStateFlow<TerminalEmulator?>(null)
 
   /**
@@ -198,9 +224,11 @@ class PaneStream(private val server: Server, val paneId: String, private val onI
   private fun newEmulator() =
     TerminalEmulatorFactory.create(
       onKeyboardInput = { bytes ->
-        // Typing into the stream brings herdr's view back to the bottom.
-        scrolledBack = 0
-        deliver("typing") { it.sendBytes(bytes) }
+        if (onText?.invoke(bytes.decodeToString()) != true) {
+          // Typing into the stream brings herdr's view back to the bottom.
+          scrolledBack = 0
+          deliver("typing") { it.sendBytes(bytes) }
+        }
       },
       onResize = ::onResize,
       // Links in the text get underlined, and a tap on one goes to the screen's onHyperlinkClick.
@@ -250,7 +278,10 @@ class PaneStream(private val server: Server, val paneId: String, private val onI
     }
     server.scope.launch {
       try {
-        send(s)
+        input.withLock {
+          send(s)
+          typedAt = SystemClock.uptimeMillis()
+        }
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
@@ -258,6 +289,53 @@ class PaneStream(private val server: Server, val paneId: String, private val onI
         _undelivered.tryEmit(Unit)
       }
     }
+  }
+
+  /**
+   * Runs [send], input to the pane through herdr's API, after the input on its way to the pane before it.
+   *
+   * termlib hands typing to the stream a moment after the key, in a plain message of the main thread's queue; so [send]
+   * first waits for a plain message of its own. A coroutine on Dispatchers.Main would go ahead of termlib's: its messages
+   * are asynchronous, and pass the barrier that holds plain ones until the next frame is drawn. Right after typing it
+   * waits [TYPING_SETTLE_MS] too: typing reaches herdr through the stream's own process, and a call of the API made at
+   * once could get there first.
+   */
+  suspend fun <T> inOrder(send: suspend () -> T): T {
+    suspendCancellableCoroutine { queued -> mainQueue.post { queued.resume(Unit) } }
+    return input.withLock {
+      val settle = typedAt + TYPING_SETTLE_MS - SystemClock.uptimeMillis()
+      if (settle > 0) delay(settle)
+      send()
+    }
+  }
+
+  /**
+   * Sends [key]: by name through herdr's API, in order with the typing around it, or typed into the live stream. Like
+   * typing, it brings herdr's view back to the bottom; a key that didn't reach the pane goes to [undelivered].
+   */
+  fun sendKey(key: PaneKey) {
+    when (key) {
+      is PaneKey.Typed -> type(key)
+      is PaneKey.Named -> {
+        scrollToBottom()
+        server.scope.launch {
+          try {
+            inOrder { (server.host ?: error("not connected")).api.sendPaneKeys(paneId, listOf(key.name)) }
+          } catch (e: CancellationException) {
+            throw e
+          } catch (e: Exception) {
+            Log.w(TAG, "a key didn't reach the pane: ${e.message}")
+            _undelivered.tryEmit(Unit)
+          }
+        }
+      }
+    }
+  }
+
+  /** Types [key] into the live stream; without one it goes nowhere, and [undelivered] says so. */
+  fun type(key: PaneKey.Typed) {
+    val emulator = _emulator.value
+    if (emulator == null) _undelivered.tryEmit(Unit) else emulator.dispatchKey(key.modifiers, key.vtermKey)
   }
 
   /** Scrolls like the desktop's mouse wheel: [lines] up into history, or down when negative. */
@@ -370,5 +448,8 @@ class PaneStream(private val server: Server, val paneId: String, private val onI
     const val TAG = "HerdrTerminal"
     const val RESIZE_DEBOUNCE_MS = 200L
     const val LINGER_MS = 1_000L
+
+    /** Longer by far than typing takes to herdr through the stream's process, which runs on herdr's machine. */
+    const val TYPING_SETTLE_MS = 100L
   }
 }

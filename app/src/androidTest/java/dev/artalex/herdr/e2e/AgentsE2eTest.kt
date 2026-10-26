@@ -164,12 +164,13 @@ class AgentsE2eTest {
       key("key-right")
       key("key-enter")
       fixture.waitForScreen(shell) { it.contains("^[[1;6C") }
-      // Ctrl lasts one key too: the arrow after the digit comes plain.
+      // Ctrl goes with a digit too, as a terminal sends it to a shell: Ctrl+2 is NUL. It lasts one key: the arrow after
+      // the digit comes plain.
       key("mod-ctrl")
       key("key-2")
       key("key-right")
       key("key-enter")
-      fixture.waitForScreen(shell) { screen -> screen.lines().any { it.trim() == "2^[[C" } }
+      fixture.waitForScreen(shell) { screen -> screen.lines().any { it.trim() == "^@^[[C" } }
     }
   }
 
@@ -250,6 +251,44 @@ class AgentsE2eTest {
       // Ctrl+Enter would come right after the prompt.
       Thread.sleep(1_000)
       assertFalse(fixture.screen(codex).contains("^[[13;5u"))
+    }
+  }
+
+  @Test
+  fun modifiersGoWithEveryKey() {
+    // A program with the kitty keyboard protocol, as Claude Code: herdr tells Ctrl+Shift+C from Ctrl+C for it.
+    val claude = fixture.workspace("e2e-mods-$run")
+    fixture.fakeKittyAgent(claude, "working")
+    launchApp(compose, "modifiersGoWithEveryKey") { scenario ->
+      openPane(claude)
+      compose.onNodeWithTag("quickKeys").performScrollToNode(hasTestTag("key-end"))
+      compose.waitUntilExactlyOneExists(hasTestTag("key-end") and isEnabled(), 15_000)
+      compose.onNodeWithTag("prompt").performClick()
+      compose.waitUntil(5_000) { keyboardShown(scenario) }
+      // Ctrl and Shift with a letter typed into the prompt: Claude Code's copy, not its interrupt.
+      key("mod-ctrl")
+      key("mod-shift")
+      keyboard(scenario) { commitText("c", 1) }
+      // Alt with a letter of the Russian layout: the Latin key it shares, X.
+      key("mod-alt")
+      keyboard(scenario) { commitText("ч", 1) }
+      // Ctrl and End of the row, Claude Code's jump to the bottom: typed into the stream, in order with the rest.
+      key("mod-ctrl")
+      key("key-end")
+      key("mod-alt")
+      key("key-enter")
+      // A keyboard's keys with Ctrl that the prompt has no use for.
+      Device.shell("input keycombination KEYCODE_CTRL_LEFT KEYCODE_O")
+      Device.shell("input keycombination KEYCODE_CTRL_LEFT KEYCODE_MOVE_END")
+      Device.shell("input keycombination KEYCODE_CTRL_LEFT KEYCODE_SHIFT_LEFT KEYCODE_C")
+      val keys = "^[[99:67;6u^[[120;3u^[[1;5F^[[13;3u^[[111;5u^[[1;5F^[[99:67;6u"
+      fixture.waitForScreen(claude) { lastLines(it).last() == keys }
+      compose.onNodeWithTag("prompt").assert(promptHolds(""))
+      // Shift alone makes a capital of the letter typed, which stays in the prompt.
+      key("mod-shift")
+      keyboard(scenario) { commitText("q", 1) }
+      compose.waitUntil(5_000) { runCatching { compose.onNodeWithTag("prompt").assert(promptHolds("Q")) }.isSuccess }
+      assertEquals(keys, lastLines(fixture.screen(claude)).last())
     }
   }
 

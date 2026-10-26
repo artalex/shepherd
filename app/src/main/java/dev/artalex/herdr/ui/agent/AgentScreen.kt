@@ -68,6 +68,7 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
@@ -91,9 +92,16 @@ import dev.artalex.herdr.core.snippets.Snippet
 import dev.artalex.herdr.core.store.Board
 import dev.artalex.herdr.ui.agents.paneSubtitle
 import dev.artalex.herdr.ui.agents.paneTitle
+import dev.artalex.herdr.ui.common.KeyModifiers
 import dev.artalex.herdr.ui.common.ModKey
+import dev.artalex.herdr.ui.common.PaneKey
 import dev.artalex.herdr.ui.common.RowKey
 import dev.artalex.herdr.ui.common.StatusChip
+import dev.artalex.herdr.ui.common.StickyModifiers
+import dev.artalex.herdr.ui.common.charKey
+import dev.artalex.herdr.ui.common.keyName
+import dev.artalex.herdr.ui.common.paneKey
+import dev.artalex.herdr.ui.common.pressedKey
 import dev.artalex.herdr.ui.common.rememberLinkOpener
 import dev.artalex.herdr.ui.files.FilesSheet
 import dev.artalex.herdr.ui.terminal.TerminalPhase
@@ -101,33 +109,25 @@ import kotlinx.coroutines.launch
 import org.connectbot.terminal.VTermKey
 
 /**
- * Label on the button and the herdr logical key it sends; Shift and Ctrl come right after the arrows. Tab is next to
- * Enter: Tab and then Enter takes the prompt Claude Code suggests.
+ * Label on the button and the herdr logical key it sends; Shift, Ctrl and Alt come right after the arrows. Tab is next
+ * to Enter: Tab and then Enter takes the prompt Claude Code suggests.
+ *
+ * Shift, Ctrl and Alt go with the next key, any key of the row or a character typed into the prompt, and herdr encodes
+ * the key with them for the program in the pane ([PaneKey]): Ctrl+End jumps to the bottom of Claude Code's transcript,
+ * Shift+Tab switches its modes. A program without the kitty keyboard protocol gets what a terminal sends it, and where
+ * a terminal has no code for the combination, as for Ctrl+1, the key comes plain.
  */
 private val QUICK_KEYS =
   listOf("1" to "1", "2" to "2", "3" to "3", "Enter" to "enter", "Tab" to "tab", "Esc" to "esc", "↑" to "up", "↓" to "down", "←" to "left", "→" to "right")
 
-/** The keys after Shift and Ctrl. */
-private val MORE_KEYS = listOf("Ctrl+C" to "ctrl+c")
+/** The keys after Shift, Ctrl and Alt, which have Ctrl of their own. */
+private val CTRL_KEYS = listOf("Ctrl+C" to "c")
 
 /**
  * The last keys of the row, with the libvterm key each types into the live stream: herdr's API has no names for them
  * (0.9.5 answers "unsupported key home"). While another client controls the pane there is no stream, and they are off.
  */
 private val STREAM_KEYS = listOf("Home" to VTermKey.HOME, "End" to VTermKey.END, "PgUp" to VTermKey.PAGEUP, "PgDn" to VTermKey.PAGEDOWN)
-
-/**
- * Keys the sticky Shift goes with: Shift+Tab switches Claude Code's modes, and Shift with an arrow moves between the
- * parts of a dialog in Codex. herdr sends Shift with a digit as the digit, and Shift+Esc as a sequence few programs know.
- */
-private val SHIFT_KEYS = setOf("up", "down", "left", "right", "tab")
-
-/**
- * Keys of the row the sticky Ctrl goes with: with an arrow it moves by words, and Ctrl+Enter is Claude Code's "send
- * now". To a program that hasn't asked for the kitty keyboard protocol herdr sends Ctrl with a digit, Enter or Tab as the
- * plain key; Claude Code asks for it. A letter for Ctrl comes from the keyboard, typed into the prompt.
- */
-private val CTRL_KEYS = setOf("up", "down", "left", "right", "enter")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -272,31 +272,20 @@ fun AgentScreen(
           Snackbar(it, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
         }
       }
-      // Shift and Ctrl hold for the next key, as in the terminal.
-      var shift by remember { mutableStateOf(false) }
-      var ctrl by remember { mutableStateOf(false) }
-      // The prompt's text with a letter that went to the agent with Ctrl in it. The text field keeps that text until it
-      // recomposes, and a keyboard's calls before then, such as finishComposingText, bring it back: it is the same edit
-      // again. The recomposition that resets the field ends that.
-      val sentWithCtrl = remember { arrayOfNulls<String>(1) }
-      SideEffect { sentWithCtrl[0] = null }
-      fun send(key: String) {
-        val mods = listOfNotNull("ctrl".takeIf { ctrl && key in CTRL_KEYS }, "shift".takeIf { shift && key in SHIFT_KEYS })
-        viewModel.sendKeys(listOf((mods + key).joinToString("+")))
-        shift = false
-        ctrl = false
-      }
-      fun sendToStream(vtermKey: Int) {
-        viewModel.sendStreamKey(vtermKey)
-        shift = false
-        ctrl = false
-      }
+      // Shift, Ctrl and Alt hold for the next key, as in the terminal.
+      val modifiers = remember { StickyModifiers() }
+      // The prompt's text with a character that went to the agent as a key, with Ctrl or Alt. The text field keeps that
+      // text until it recomposes, and a keyboard's calls before then, such as finishComposingText, bring it back: it is
+      // the same edit again. The recomposition that resets the field ends that.
+      val sentAsKey = remember { arrayOfNulls<String>(1) }
+      SideEffect { sentAsKey[0] = null }
+      // A key of the row, with the modifiers that are on and [own] ones.
+      fun send(key: String, own: KeyModifiers = KeyModifiers.NONE) = viewModel.sendKeys(listOf(keyName(key, modifiers.take() + own)))
       // Ctrl+Enter in the prompt, from a keyboard or with the sticky Ctrl; not while a just-started agent isn't ready, as
       // the send button.
       fun sendNow() {
         if (view?.starting != true) viewModel.sendPrompt(now = true)
-        shift = false
-        ctrl = false
+        modifiers.take()
       }
       val phase by viewModel.stream.phase.collectAsStateWithLifecycle()
       // A stream key the stream didn't take, as when it broke a moment ago: one note at a time, as on the terminal screen.
@@ -311,43 +300,48 @@ fun AgentScreen(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("quickKeys"),
       ) {
         items(QUICK_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
-        item { ModKey("Shift", on = shift, onClick = { shift = !shift }, modifier = Modifier.testTag("mod-shift")) }
-        item { ModKey("Ctrl", on = ctrl, onClick = { ctrl = !ctrl }, modifier = Modifier.testTag("mod-ctrl")) }
-        items(MORE_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
+        item { ModKey("Shift", on = modifiers.shift, onClick = { modifiers.shift = !modifiers.shift }, modifier = Modifier.testTag("mod-shift")) }
+        item { ModKey("Ctrl", on = modifiers.ctrl, onClick = { modifiers.ctrl = !modifiers.ctrl }, modifier = Modifier.testTag("mod-ctrl")) }
+        item { ModKey("Alt", on = modifiers.alt, onClick = { modifiers.alt = !modifiers.alt }, modifier = Modifier.testTag("mod-alt")) }
+        items(CTRL_KEYS) { (label, key) -> RowKey(label, onClick = { send(key, KeyModifiers(ctrl = true)) }, modifier = Modifier.testTag("key-ctrl+$key")) }
         items(STREAM_KEYS) { (label, key) ->
-          RowKey(label, onClick = { sendToStream(key) }, modifier = Modifier.testTag("key-" + label.lowercase()), enabled = phase == TerminalPhase.Live)
+          RowKey(
+            label,
+            onClick = { viewModel.sendKey(paneKey(key, modifiers.take())) },
+            modifier = Modifier.testTag("key-" + label.lowercase()),
+            enabled = phase == TerminalPhase.Live,
+          )
         }
       }
       if (pane?.agent != null) {
         PromptRow(
           value = draft.value,
           onValueChange = { next ->
-            val typed = if (ctrl) typedChar(draft.value, next) else null
+            val typed = if (modifiers.held().any) typedChar(draft.value, next) else null
             when {
-              next.text == sentWithCtrl[0] -> Unit
+              next.text == sentAsKey[0] -> Unit
               typed == null -> draft.value = next
               else -> {
-                // Ctrl goes with the next character typed: a Latin letter goes to the agent as Ctrl and that letter, Enter
-                // sends the prompt at once, anything else goes into the prompt as usual.
-                ctrl = false
-                val letter = typed.lowercaseChar()
+                // The modifiers go with the next character typed. With Ctrl or Alt it is a key for the agent; Ctrl+Enter
+                // alone sends the prompt at once. Shift alone makes a capital of it.
+                val mods = modifiers.take()
                 when {
-                  letter in 'a'..'z' -> {
-                    viewModel.sendKeys(listOf("ctrl+$letter"))
-                    sentWithCtrl[0] = next.text
-                  }
-                  typed == '\n' -> {
+                  typed == '\n' && mods == KeyModifiers(ctrl = true) -> {
                     sendNow()
-                    sentWithCtrl[0] = next.text
+                    sentAsKey[0] = next.text
                   }
-                  else -> draft.value = next
+                  mods.command -> {
+                    viewModel.sendKey(charKey(typed.code, mods))
+                    sentAsKey[0] = next.text
+                  }
+                  else -> draft.value = next.withCapital(at = draft.value.selection.min)
                 }
               }
             }
           },
-          // While Ctrl is on, the keyboard is asked for no suggestions: it sends a letter as it is typed, not as a word
-          // in the making that it would put back into the prompt after the letter went to the agent.
-          keyboard = if (ctrl) KeyboardOptions(keyboardType = KeyboardType.PasswordVisible, autoCorrectEnabled = false) else KeyboardOptions.Default,
+          // While a modifier is on, the keyboard is asked for no suggestions: it sends a letter as it is typed, not as a
+          // word in the making that it would put back into the prompt after the letter went to the agent.
+          keyboard = if (modifiers.held().any) KeyboardOptions(keyboardType = KeyboardType.PasswordVisible, autoCorrectEnabled = false) else KeyboardOptions.Default,
           focus = promptFocus,
           starting = view?.starting == true,
           sending = draft.sending,
@@ -369,6 +363,14 @@ fun AgentScreen(
           },
           onSend = viewModel::sendPrompt,
           onSendNow = { sendNow() },
+          onKey = { event ->
+            val key = pressedKey(event, modifiers.held())
+            if (key != null) {
+              modifiers.take()
+              viewModel.sendKey(key)
+            }
+            key != null
+          },
         )
       }
     }
@@ -613,8 +615,11 @@ private fun CloseDialog(pane: PaneInfo, board: Board?, onConfirm: () -> Unit, on
 
 /**
  * The prompt, with [snippets] before it. While a just-started agent isn't ready, text can be typed but not sent: herdr
- * would refuse it. Nor while the previous prompt is [sending]: one at a time, they reach the agent in order. Ctrl+Enter
- * from a keyboard goes to [onSendNow], where the field would start a new line.
+ * would refuse it. Nor while the previous prompt is [sending]: one at a time, they reach the agent in order.
+ *
+ * Keys from a keyboard with modifiers the field has no use for go to the agent, through [onKey], which says whether it
+ * took the key: Ctrl+End, Ctrl+Shift+C. So does Enter with Ctrl or Alt, where the field would start a new line; Ctrl+Enter
+ * alone goes to [onSendNow].
  */
 @Composable
 private fun PromptRow(
@@ -627,6 +632,7 @@ private fun PromptRow(
   snippets: @Composable () -> Unit,
   onSend: () -> Unit,
   onSendNow: () -> Unit,
+  onKey: (android.view.KeyEvent) -> Boolean,
 ) {
   Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
     snippets()
@@ -637,12 +643,19 @@ private fun PromptRow(
       placeholder = { Text(stringResource(if (starting) R.string.agent_starting else R.string.agent_prompt_hint)) },
       maxLines = 4,
       modifier =
-        Modifier.weight(1f).focusRequester(focus).testTag("prompt").onPreviewKeyEvent {
-          val ctrlEnter = (it.key == Key.Enter || it.key == Key.NumPadEnter) && it.isCtrlPressed && !it.isShiftPressed && !it.isAltPressed && !it.isMetaPressed
-          // Once for a press: held down, the key repeats.
-          if (ctrlEnter && it.type == KeyEventType.KeyDown && it.nativeKeyEvent.repeatCount == 0) onSendNow()
-          ctrlEnter
-        },
+        Modifier.weight(1f)
+          .focusRequester(focus)
+          .testTag("prompt")
+          .onPreviewKeyEvent {
+            val enter = (it.key == Key.Enter || it.key == Key.NumPadEnter) && (it.isCtrlPressed || it.isAltPressed)
+            // Once for a press: held down, the key repeats.
+            if (enter && it.type == KeyEventType.KeyDown && it.nativeKeyEvent.repeatCount == 0) {
+              if (it.isCtrlPressed && !it.isShiftPressed && !it.isAltPressed && !it.isMetaPressed) onSendNow() else onKey(it.nativeKeyEvent)
+            }
+            enter
+          }
+          // After the field: the keys it took are its own.
+          .onKeyEvent { it.type == KeyEventType.KeyDown && onKey(it.nativeKeyEvent) },
     )
     IconButton(onClick = onSend, enabled = value.text.isNotBlank() && !starting && !sending, modifier = Modifier.testTag("sendPrompt")) {
       Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.agent_send))
@@ -825,6 +838,9 @@ private fun typedChar(before: TextFieldValue, after: TextFieldValue): Char? {
       after.text.endsWith(before.text.substring(at))
   return if (inserted) after.text[at] else null
 }
+
+/** This text with the character typed [at] made a capital, as Shift makes it. */
+private fun TextFieldValue.withCapital(at: Int): TextFieldValue = copy(text = text.substring(0, at) + text[at].uppercaseChar() + text.substring(at + 1))
 
 /** [path] put in at the cursor, with spaces from the words around it; in quotes if it has spaces of its own. */
 private fun TextFieldValue.withPath(path: String): TextFieldValue = withWord(if (path.any { it.isWhitespace() }) "\"$path\"" else path, spaceAtEnd = true)

@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -108,6 +109,11 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
   val openLink = rememberLinkOpener(snackbar)
   val selection = remember { TerminalSelection() }
   LaunchedEffect(closed) { if (closed) onPaneClosed() }
+  // Text a soft keyboard sends while a modifier is on in the row goes with it.
+  DisposableEffect(stream) {
+    stream.onText = viewModel::takeText
+    onDispose { stream.onText = null }
+  }
   // Typing or a paste without a live stream goes nowhere: one note at a time says so, rather than one per key.
   LaunchedEffect(stream) {
     stream.undelivered.collect {
@@ -161,7 +167,7 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
               typeface = rememberTerminalTypeface(),
               keyboardEnabled = true,
               focusRequester = focus,
-              modifierManager = viewModel.modifiers,
+              onInterceptKey = viewModel::interceptKey,
               onSelectionControllerAvailable = { controller -> selection.controller = controller },
               onPasteRequest = paste,
               onHyperlinkClick = openLink,
