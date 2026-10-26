@@ -122,6 +122,8 @@
     <string name="snippets_title">Сниппеты</string>
     <string name="snippets_add">Добавить</string>
     <string name="snippets_delete">Удалить сниппет</string>
+    <string name="snippets_move_up">Переместить вверх</string>
+    <string name="snippets_move_down">Переместить вниз</string>
     <string name="snippets_done">Сохранить</string>
     <string name="snippets_on_start">При запуске: %1$s</string>
     <string name="snippets_on_start_none">нет</string>

@@ -122,6 +122,8 @@
     <string name="snippets_title">Snippets</string>
     <string name="snippets_add">Add</string>
     <string name="snippets_delete">Delete snippet</string>
+    <string name="snippets_move_up">Move up</string>
+    <string name="snippets_move_down">Move down</string>
     <string name="snippets_done">Save</string>
     <string name="snippets_on_start">At start: %1$s</string>
     <string name="snippets_on_start_none">none</string>

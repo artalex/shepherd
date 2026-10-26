@@ -19,7 +19,6 @@ import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import java.util.concurrent.CopyOnWriteArrayList
-import org.connectbot.terminal.TerminalEmulator
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -106,9 +105,7 @@ class LinksE2eTest {
    * after herdr draws them, and termlib finds the links of each new one on its own thread.
    */
   private fun awaitLink(paneId: String, start: String) {
-    lateinit var emulator: TerminalEmulator
-    InstrumentationRegistry.getInstrumentation().runOnMainSync { emulator = server.streams.of(paneId).emulator }
-    compose.waitUntil(10_000) { emulator.getUrls().any { it.url.startsWith(start) } }
+    compose.waitUntil(10_000) { server.emulatorOf(paneId)?.getUrls()?.any { it.url.startsWith(start) } == true }
     compose.waitForIdle()
   }
 

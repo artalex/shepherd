@@ -10,9 +10,17 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.artalex.herdr.MainActivity
 import dev.artalex.herdr.Server
+import org.connectbot.terminal.TerminalEmulator
 
 /** The agent screen's prompt field holds exactly [text]. */
 fun promptHolds(text: String) = SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(text))
+
+/** The emulator of [paneId]'s stream on the phone: there is one while a screen shows the pane, and a moment after. */
+fun Server.emulatorOf(paneId: String): TerminalEmulator? {
+  var emulator: TerminalEmulator? = null
+  InstrumentationRegistry.getInstrumentation().runOnMainSync { emulator = streams.of(paneId).emulator.value }
+  return emulator
+}
 
 /** Rows to columns of [paneId]'s view on the phone, as termlib measured it. */
 fun Server.viewGrid(paneId: String): Pair<Int, Int> {

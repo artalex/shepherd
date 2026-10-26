@@ -6,8 +6,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import dev.artalex.herdr.ui.agent.AgentScreen
 import dev.artalex.herdr.ui.agent.AgentViewModel
@@ -60,6 +62,9 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
   NavDisplay(
     backStack = backStack,
     onBack = back,
+    // A screen's models live while it is on the back stack, not as long as the activity: a pane's agent and terminal
+    // models, and its stream they hold, go once the user leaves the pane.
+    entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
     entryProvider =
       entryProvider {
         entry<Agents> {
@@ -100,7 +105,7 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
             // The user is looking at the agent: a notification about it has done its job.
             LaunchedEffect(key) { container.alerts.dismiss(key.serverId, key.paneId) }
             AgentScreen(
-              viewModel(key = "agent-${key.serverId}/${key.paneId}") { AgentViewModel(servers, server, key.paneId, container.snippets, container.filesSettings) },
+              viewModel { AgentViewModel(servers, server, key.paneId, container.snippets, container.filesSettings) },
               onBack = back,
               onOpenTerminal = { backStack.add(Terminal(key.serverId, key.paneId)) },
               onSwitchPane = showPane,
@@ -114,7 +119,7 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
             LaunchedEffect(key) { forgetPane(key.serverId, key.paneId) }
           } else {
             TerminalScreen(
-              viewModel(key = "terminal-${key.serverId}/${key.paneId}") { TerminalViewModel(server, key.paneId) },
+              viewModel { TerminalViewModel(server, key.paneId) },
               title = key.paneId,
               onBack = back,
               onPaneClosed = { forgetPane(key.serverId, key.paneId) },

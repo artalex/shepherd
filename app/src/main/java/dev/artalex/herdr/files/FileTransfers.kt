@@ -205,32 +205,8 @@ class FileTransfers(private val app: Application, private val server: Server, pr
 
     override fun exists(location: String): Boolean = PhoneDownloads.exists(resolver, location.toUri())
 
-    override fun save(name: String, previous: String?, write: (OutputStream) -> Unit): String {
-      // A copy made before a reinstall, or deleted since, can't be written: then a new one.
-      val old = previous?.toUri()
-      if (old != null && writeInto(old, "wt", write)) return old.toString()
-      val created = PhoneDownloads.create(resolver, PhoneDownloads.folder(app), name)
-      try {
-        if (!writeInto(created, "w", write)) throw IOException("cannot write $created")
-        PhoneDownloads.publish(resolver, created)
-      } catch (e: Throwable) {
-        PhoneDownloads.delete(resolver, created)
-        throw e
-      }
-      return created.toString()
-    }
-
-    /** Runs [write] on the file at [uri]; false if the app can't open it for writing. */
-    private fun writeInto(uri: Uri, mode: String, write: (OutputStream) -> Unit): Boolean {
-      val out =
-        try {
-          resolver.openOutputStream(uri, mode)
-        } catch (e: Exception) {
-          null
-        } ?: return false
-      out.use(write)
-      return true
-    }
+    override fun save(name: String, previous: String?, write: (OutputStream) -> Unit): String =
+      PhoneDownloads.save(resolver, PhoneDownloads.folder(app), name, previous?.toUri(), write).toString()
   }
 
   private companion object {

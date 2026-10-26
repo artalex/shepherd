@@ -175,19 +175,32 @@ class AgentViewModel(
    * stream as on the terminal screen. Without a live stream it goes nowhere.
    */
   fun sendStreamKey(vtermKey: Int) {
-    stream.emulator.dispatchKey(0, vtermKey)
+    stream.emulator.value?.dispatchKey(0, vtermKey)
   }
 
-  /** The prompt being written; it outlives the screen's recompositions and configuration changes. */
-  val draft = PromptDraft()
+  /** The prompt being written. The server keeps it: it outlives this model, which goes with the screen. */
+  val draft = server.drafts.of(paneId)
 
-  /** Sends the prompt's text to the agent; the draft keeps it until herdr takes it. */
-  fun sendPrompt() {
+  /**
+   * Sends the prompt's text to the agent; the draft keeps it until herdr takes it.
+   *
+   * [now]: Ctrl+Enter rather than the send button. Claude Code then gets Ctrl+Enter too, its "send now": a prompt that
+   * comes while it works waits for the end of the turn, and Ctrl+Enter hands it over at once. Should the key come before
+   * Claude Code has queued the prompt, the prompt waits, as if sent with the button. Other agents get the prompt alone:
+   * Ctrl+Enter may mean something else to them. Without a prompt Ctrl+Enter goes by itself, as from the row.
+   */
+  fun sendPrompt(now: Boolean = false) {
+    if (now && draft.value.text.isBlank()) {
+      sendKeys(listOf(SEND_NOW))
+      return
+    }
     val text = draft.take() ?: return
+    val thenSendNow = now && pane.value?.pane?.agent == AgentKind.CLAUDE.kind
     act(onFailure = draft::failed) { host ->
       stream.scrollToBottom()
       host.api.promptAgent(paneId, text)
       draft.sent()
+      if (thenSendNow) host.api.sendAgentKeys(paneId, listOf(SEND_NOW))
     }
   }
 
@@ -281,10 +294,12 @@ class AgentViewModel(
 
   /**
    * Runs [block] against the connected host. Without a connection nothing goes and the snackbar says so; herdr's refusal
-   * or a broken connection goes to the snackbar too. Either way [onFailure] runs.
+   * or a broken connection goes to the snackbar too. Either way [onFailure] runs. It runs in the server's scope, so
+   * leaving the screen doesn't cut it short: a sent prompt reaches herdr or comes back to its draft, and an agent started
+   * gets its snippets.
    */
   private fun act(onFailure: () -> Unit = {}, block: suspend (HerdrHost) -> Unit) {
-    viewModelScope.launch {
+    server.scope.launch {
       val host = server.host
       if (host == null) {
         onFailure()
@@ -319,5 +334,8 @@ class AgentViewModel(
   private companion object {
     const val SCREEN_PERIOD_MS = 1_000L
     const val STOP_TIMEOUT_MS = 5_000L
+
+    /** Claude Code's "send now": the prompts it has queued go to Claude at once, mid-turn. */
+    const val SEND_NOW = "ctrl+enter"
   }
 }

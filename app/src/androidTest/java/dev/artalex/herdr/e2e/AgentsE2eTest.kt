@@ -22,6 +22,7 @@ import dev.artalex.herdr.R
 import dev.artalex.herdr.core.snippets.Snippet
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -198,6 +199,60 @@ class AgentsE2eTest {
     }
   }
 
+  /** The last two lines of [screen] with anything on them. */
+  private fun lastLines(screen: String) = screen.lines().map { it.trim() }.filter { it.isNotEmpty() }.takeLast(2)
+
+  /** Ctrl+Enter from the phone's keyboard, through the system's input as a key press. */
+  private fun ctrlEnter() {
+    Device.shell("input keycombination KEYCODE_CTRL_LEFT KEYCODE_ENTER")
+  }
+
+  @Test
+  fun ctrlEnterSendsThePromptAtOnce() {
+    // Working, as Claude Code is when Ctrl+Enter matters to it: a prompt then waits for the end of the turn.
+    val claude = fixture.workspace("e2e-now-$run")
+    fixture.fakeKittyAgent(claude, "working")
+    launchApp(compose, "ctrlEnterSendsThePromptAtOnce") { scenario ->
+      openPane(claude)
+      // The prompt goes as with the send button, and Ctrl+Enter after it.
+      compose.onNodeWithTag("prompt").performTextInput("now please")
+      ctrlEnter()
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("now please", "^[[13;5u") }
+      compose.onNodeWithTag("prompt").assert(promptHolds(""))
+      // Without a prompt Ctrl+Enter goes by itself.
+      ctrlEnter()
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("now please", "^[[13;5u^[[13;5u") }
+      // The sticky Ctrl with Enter from the soft keyboard is Ctrl+Enter too, and the new line stays out of the prompt.
+      compose.onNodeWithTag("prompt").performTextInput("and this")
+      key("mod-ctrl")
+      keyboard(scenario) { commitText("\n", 1) }
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[13;5u^[[13;5uand this", "^[[13;5u") }
+      compose.onNodeWithTag("prompt").assert(promptHolds(""))
+      // And with Enter from the row, by itself.
+      key("mod-ctrl")
+      key("key-enter")
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[13;5u^[[13;5uand this", "^[[13;5u^[[13;5u") }
+    }
+  }
+
+  @Test
+  fun ctrlEnterSendsOtherAgentsThePromptAlone() {
+    // Ctrl+Enter after a prompt is for Claude Code; another agent gets the prompt as from the send button.
+    val codex = fixture.workspace("e2e-codex-$run")
+    fixture.fakeKittyAgent(codex, "working", agent = "codex")
+    launchApp(compose, "ctrlEnterSendsOtherAgentsThePromptAlone") {
+      openPane(codex)
+      compose.onNodeWithTag("prompt").performTextInput("just this")
+      ctrlEnter()
+      // The line comes twice: as typed, then from cat.
+      fixture.waitForScreen(codex) { screen -> screen.lines().count { it.trim() == "just this" } == 2 }
+      compose.onNodeWithTag("prompt").assert(promptHolds(""))
+      // Ctrl+Enter would come right after the prompt.
+      Thread.sleep(1_000)
+      assertFalse(fixture.screen(codex).contains("^[[13;5u"))
+    }
+  }
+
   @Test
   fun tabComesRightAfterEnter() {
     // -T: cat -v alone passes a tab through as it is.
@@ -283,11 +338,25 @@ class AgentsE2eTest {
       Screens.take(compose, "08d-agent-snippets-menu")
       Espresso.pressBack()
 
+      // The arrows change the order, and the menu follows it. The first can't go up, the last can't go down.
+      snippetsMenu("editSnippets")
+      compose.waitUntilExactlyOneExists(hasTestTag("moveSnippetUp-2"), 5_000)
+      compose.onNodeWithTag("moveSnippetUp-0").assertIsNotEnabled()
+      compose.onNodeWithTag("moveSnippetDown-2").assertIsNotEnabled()
+      compose.onNodeWithTag("moveSnippetUp-2").performClick()
+      compose.onNodeWithTag("moveSnippetDown-0").performClick()
+      compose.onNodeWithTag("snippetField-0").assert(hasText("продолжай"))
+      compose.onNodeWithTag("saveSnippets").performClick()
+      assertEquals(listOf(Snippet("продолжай"), Snippet("/effort max"), Snippet("/compact")), snippets.snippets.value)
+      compose.onNodeWithTag("snippets").performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("snippet-0") and hasText("продолжай"), 5_000)
+      Espresso.pressBack()
+
       // A changed snippet and a deleted one.
       snippetsMenu("editSnippets")
-      compose.waitUntilExactlyOneExists(hasTestTag("snippetField-1"), 5_000)
-      compose.onNodeWithTag("snippetField-1").performTextReplacement("/compact keep the plan")
-      compose.onNodeWithTag("deleteSnippet-2").performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("snippetField-2"), 5_000)
+      compose.onNodeWithTag("snippetField-2").performTextReplacement("/compact keep the plan")
+      compose.onNodeWithTag("deleteSnippet-0").performClick()
       compose.onNodeWithTag("saveSnippets").performClick()
       assertEquals(listOf(Snippet("/effort max"), Snippet("/compact keep the plan")), snippets.snippets.value)
     }

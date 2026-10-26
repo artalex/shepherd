@@ -1,6 +1,7 @@
 package dev.artalex.herdr
 
 import dev.artalex.herdr.core.model.SessionSnapshot
+import dev.artalex.herdr.core.store.PerPane
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -26,28 +27,15 @@ sealed interface PromptPart {
  * Main thread only.
  */
 class PromptInbox {
-  private val boxes = mutableMapOf<String, Box>()
+  private val boxes = PerPane { Channel<PromptPart>(Channel.UNLIMITED) }
 
   fun put(paneId: String, part: PromptPart) {
-    box(paneId).parts.trySend(part)
+    boxes.of(paneId).trySend(part)
   }
 
   /** The parts for pane [paneId], each taken once; the pane as it is when collecting starts. */
-  fun of(paneId: String): Flow<PromptPart> = flow { emitAll(box(paneId).parts.receiveAsFlow()) }
+  fun of(paneId: String): Flow<PromptPart> = flow { emitAll(boxes.of(paneId).receiveAsFlow()) }
 
   /** A snapshot of the session: a pane that was in one before and is missing now is closed. */
-  fun seen(snapshot: SessionSnapshot) {
-    val panes = snapshot.panes.mapTo(HashSet()) { it.paneId }
-    boxes.entries.removeAll { (paneId, box) -> box.seen && paneId !in panes }
-    for ((paneId, box) in boxes) if (paneId in panes) box.seen = true
-  }
-
-  private fun box(paneId: String) = boxes.getOrPut(paneId) { Box() }
-
-  private class Box {
-    val parts = Channel<PromptPart>(Channel.UNLIMITED)
-
-    /** The pane has been in a snapshot; a pane just started may not be yet. */
-    var seen = false
-  }
+  fun seen(snapshot: SessionSnapshot) = boxes.seen(snapshot)
 }

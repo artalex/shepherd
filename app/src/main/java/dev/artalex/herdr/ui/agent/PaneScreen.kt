@@ -7,6 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -62,20 +63,31 @@ fun PaneScreen(viewModel: AgentViewModel, grid: PaneGrid, onLink: (String) -> Un
 @Composable
 fun NoScreen() = Text(stringResource(R.string.agent_no_screen), Modifier.padding(16.dp))
 
-/** A read-only view of the stream; termlib picks rows and columns for the view at its default font. */
+/**
+ * A read-only view of the stream; termlib picks rows and columns for the view at its default font. The emulator is
+ * empty until the stream's first frame, and meanwhile the screen says that it waits for the pane's screen.
+ */
 @Composable
 private fun LiveTerminal(stream: PaneStream, onLink: (String) -> Unit) {
   val selection = remember { TerminalSelection() }
+  val emulator by stream.emulator.collectAsStateWithLifecycle()
+  val drawn by stream.drawn.collectAsStateWithLifecycle()
   // termlib draws its canvas without clipping; with the keyboard up it would cover the top bar.
   Box(Modifier.fillMaxSize().clipToBounds().wheelScroll(stream, selection).testTag("liveScreen")) {
-    Terminal(
-      stream.emulator,
-      modifier = Modifier.fillMaxSize(),
-      typeface = rememberTerminalTypeface(),
-      keyboardEnabled = false,
-      onSelectionControllerAvailable = { selection.controller = it },
-      onHyperlinkClick = onLink,
-    )
+    emulator?.let {
+      // A new emulator gets a view of its own.
+      key(it) {
+        Terminal(
+          it,
+          modifier = Modifier.fillMaxSize(),
+          typeface = rememberTerminalTypeface(),
+          keyboardEnabled = false,
+          onSelectionControllerAvailable = { controller -> selection.controller = controller },
+          onHyperlinkClick = onLink,
+        )
+      }
+    }
+    if (!drawn) NoScreen()
   }
 }
 

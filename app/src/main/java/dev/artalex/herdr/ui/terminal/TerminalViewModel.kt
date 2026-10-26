@@ -58,14 +58,17 @@ class TerminalViewModel(server: Server, paneId: String) : ViewModel() {
 
   val modifiers = StickyModifiers()
 
-  /** Keys from the extra row go through the emulator, which encodes them like the soft keyboard does. */
+  /**
+   * Keys from the extra row go through the emulator, which encodes them like the soft keyboard does. The row waits for
+   * a live stream, so the emulator is there.
+   */
   fun sendKey(vtermKey: Int) {
-    stream.emulator.dispatchKey(modifiers.mask(), vtermKey)
+    stream.emulator.value?.dispatchKey(modifiers.mask(), vtermKey)
     modifiers.clearTransients()
   }
 
   fun sendChar(char: Char) {
-    stream.emulator.dispatchCharacter(modifiers.mask(), char.code)
+    stream.emulator.value?.dispatchCharacter(modifiers.mask(), char.code)
     modifiers.clearTransients()
   }
 

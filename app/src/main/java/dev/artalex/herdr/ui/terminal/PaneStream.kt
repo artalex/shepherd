@@ -3,6 +3,7 @@ package dev.artalex.herdr.ui.terminal
 import android.util.Log
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.core.host.HerdrHost
+import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.terminal.CloseReason
 import dev.artalex.herdr.core.terminal.TermlibInput
@@ -26,18 +27,73 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.connectbot.terminal.TerminalDimensions
+import org.connectbot.terminal.TerminalEmulator
 import org.connectbot.terminal.TerminalEmulatorFactory
 
-/** One [PaneStream] per pane of the server, for the screens that show it. */
+/**
+ * One [PaneStream] per pane of the server, for the screens that show it. A stream keeps the pane's screen and
+ * scrollback in its emulator, so it goes once its pane is gone from the session and no screen shows it: with the next
+ * snapshot ([seen]), or once the last screen has let go. Only an [PaneStream.idle] stream goes, so nothing of it is
+ * left open, and it closes its emulator on the way out. Main thread only, like the screens and the snapshots.
+ */
 class PaneStreams(private val server: Server) {
-  private val streams = mutableMapOf<String, PaneStream>()
+  private val streams = mutableMapOf<String, Entry>()
+
+  /** The panes of the last snapshot; null before the first one. */
+  private var panes: Set<String>? = null
+
+  /** The panes that have a stream now. For the e2e tests: a closed pane's stream goes once no screen shows it. */
+  val paneIds: Set<String>
+    get() = streams.keys.toSet()
 
   /** A closed pane's stream is done for good: its id may come back as a new pane. */
   fun of(paneId: String): PaneStream {
-    val existing = streams[paneId]
-    if (existing != null && !existing.paneClosed.value) return existing
-    return PaneStream(server, paneId).also { streams[paneId] = it }
+    streams[paneId]?.let {
+      if (!it.stream.paneClosed.value) return it.stream
+      // The new pane takes the id over; the old stream closes once no screen shows it (see [dropIfGone]).
+      if (it.stream.idle) it.stream.close()
+    }
+    // A pane of the last snapshot is there: once a later snapshot lacks it, it is closed.
+    val entry = Entry(PaneStream(server, paneId, onIdle = ::dropIfGone), seen = panes?.contains(paneId) == true)
+    streams[paneId] = entry
+    return entry.stream
   }
+
+  /**
+   * A snapshot of the session: a pane that was in one before and is missing now is closed, and its stream goes. One
+   * that a screen still shows goes once the screen lets go: screens leave a pane that is gone.
+   */
+  fun seen(snapshot: SessionSnapshot) {
+    val now = snapshot.panes.mapTo(HashSet()) { it.paneId }
+    panes = now
+    for ((paneId, entry) in streams) if (paneId in now) entry.seen = true
+    streams.values.filter { it.stream.idle && gone(it) }.forEach { drop(it.stream) }
+  }
+
+  /** The server is deleted: every stream goes. No screen shows them by then: the server's screens left with it. */
+  fun close() {
+    streams.values.forEach { it.stream.close() }
+    streams.clear()
+  }
+
+  /** The last screen of [stream] let go a moment ago: if its pane is gone by now, the stream goes. */
+  private fun dropIfGone(stream: PaneStream) {
+    val entry = streams[stream.paneId]
+    // A new pane of the same id replaced it (see [of]): with no screen left, it has nothing to show.
+    if (entry == null || entry.stream !== stream) stream.close()
+    else if (stream.idle && gone(entry)) drop(stream)
+  }
+
+  private fun drop(stream: PaneStream) {
+    streams.remove(stream.paneId)
+    stream.close()
+  }
+
+  /** The pane is closed: its stream found it gone, or it was in a snapshot and the last one lacks it. */
+  private fun gone(entry: Entry) = entry.stream.paneClosed.value || (entry.seen && panes?.contains(entry.stream.paneId) == false)
+
+  /** [seen]: the pane has been in a snapshot. One just started may not be in one yet, and isn't closed for that. */
+  private class Entry(val stream: PaneStream, var seen: Boolean)
 }
 
 /**
@@ -47,9 +103,10 @@ class PaneStreams(private val server: Server) {
  *
  * While the stream is open the pane's PTY takes the size of the view on the phone; herdr gives the desktop its
  * geometry back on release. That happens a moment after the last screen showing the pane goes away, or when the
- * SSH channel drops.
+ * SSH channel drops. Past that moment without a screen, the stream is [idle], its emulator gone, and it tells
+ * [onIdle]. Once its pane or server is gone, it is [close]d for good.
  */
-class PaneStream(private val server: Server, private val paneId: String) {
+class PaneStream(private val server: Server, val paneId: String, private val onIdle: (PaneStream) -> Unit) {
   private val _phase = MutableStateFlow<TerminalPhase>(TerminalPhase.Measuring)
   val phase: StateFlow<TerminalPhase> = _phase.asStateFlow()
 
@@ -72,11 +129,73 @@ class PaneStream(private val server: Server, private val paneId: String) {
   private var resizeJob: Job? = null
   private var users = 0
   private var linger: Job? = null
+  private var closed = false
 
   /** How far up the view may be scrolled, in lines; more than it is once herdr stops at the top of its history. */
   private var scrolledBack = 0
 
-  val emulator =
+  private val _emulator = MutableStateFlow<TerminalEmulator?>(null)
+
+  /**
+   * The pane's screen as termlib draws it, while a screen shows the pane and for a moment after. A screen that comes
+   * later gets a new, empty one, which the first frame of its stream fills: the old picture would pass for the pane as
+   * it is now, after any time away.
+   */
+  val emulator: StateFlow<TerminalEmulator?> = _emulator.asStateFlow()
+
+  private val _drawn = MutableStateFlow(false)
+
+  /** The emulator has a frame of the pane. Until it does, the screens say that they wait for one. */
+  val drawn: StateFlow<Boolean> = _drawn.asStateFlow()
+
+  /** Text rows of the view, once termlib has measured it. */
+  val rows: Int?
+    get() = size?.rows
+
+  /** Columns of the view, and of the pane while the stream is live. */
+  val columns: Int?
+    get() = size?.columns
+
+  /**
+   * No screen shows the pane, and the moment after the last one is over: the stream is stopped and the session closed,
+   * or still giving the pane back to the desktop.
+   */
+  val idle: Boolean
+    get() = users == 0 && linger == null
+
+  /**
+   * A screen shows the pane. Without an emulator it gets a new one; the stream opens once termlib has measured a view,
+   * or right away if it has.
+   */
+  fun acquire() {
+    users++
+    linger?.cancel()
+    linger = null
+    if (closed) return
+    if (_emulator.value == null) _emulator.value = newEmulator()
+    if (size != null && stream?.isActive != true) open(takeover = false)
+  }
+
+  /**
+   * A screen no longer shows the pane. A moment after the last one the stream closes and the emulator goes, and the
+   * stream is [idle]; a screen of the pane within that moment keeps both.
+   */
+  fun release() {
+    users--
+    if (users > 0) return
+    linger =
+      server.scope.launch {
+        delay(LINGER_MS)
+        stream?.cancel()
+        stream = null
+        closeSession()
+        dropEmulator()
+        linger = null
+        onIdle(this@PaneStream)
+      }
+  }
+
+  private fun newEmulator() =
     TerminalEmulatorFactory.create(
       onKeyboardInput = { bytes ->
         // Typing into the stream brings herdr's view back to the bottom.
@@ -88,33 +207,30 @@ class PaneStream(private val server: Server, private val paneId: String) {
       autoDetectUrls = true,
     )
 
-  /** Text rows of the view, once termlib has measured it. */
-  val rows: Int?
-    get() = size?.rows
-
-  /** Columns of the view, and of the pane while the stream is live. */
-  val columns: Int?
-    get() = size?.columns
-
-  /** A screen shows the pane. The stream opens once termlib has measured a view, or right away if it has. */
-  fun acquire() {
-    users++
-    linger?.cancel()
-    linger = null
-    if (size != null && stream?.isActive != true) open(takeover = false)
+  /**
+   * Closes the emulator, which lets go of termlib's native terminal: that would keep it, and the stream with it, for as
+   * long as the app runs. The next one is measured afresh, and the stream opens at its size.
+   */
+  private fun dropEmulator() {
+    _emulator.value?.close()
+    _emulator.value = null
+    _drawn.value = false
+    resizeJob?.cancel()
+    size = null
+    scrolledBack = 0
+    _phase.value = TerminalPhase.Measuring
   }
 
-  /** A screen no longer shows the pane. A moment after the last one the stream closes; the next screen of the pane keeps it. */
-  fun release() {
-    users--
-    if (users > 0) return
-    linger =
-      server.scope.launch {
-        delay(LINGER_MS)
-        stream?.cancel()
-        stream = null
-        closeSession()
-      }
+  /** The stream is done for good: its pane or its server is gone, and no screen shows it. */
+  fun close() {
+    if (closed) return
+    closed = true
+    stream?.cancel()
+    stream = null
+    linger?.cancel()
+    linger = null
+    closeSession()
+    dropEmulator()
   }
 
   fun takeOver() = open(takeover = true)
@@ -175,8 +291,8 @@ class PaneStream(private val server: Server, private val paneId: String) {
   }
 
   private fun open(takeover: Boolean) {
-    // No screen shows the pane: nothing to stream it for.
-    if (users == 0) return
+    // No screen shows the pane: nothing to stream it for. A closed stream has no emulator to draw into.
+    if (users == 0 || closed) return
     val dims = size ?: return
     stream?.cancel()
     closeSession()
@@ -199,7 +315,8 @@ class PaneStream(private val server: Server, private val paneId: String) {
             when (event) {
               is TerminalEvent.Frame -> {
                 if (_phase.value != TerminalPhase.Live) _phase.value = TerminalPhase.Live
-                emulator.writeInput(input.filter(event.bytes))
+                _emulator.value?.writeInput(input.filter(event.bytes))
+                _drawn.value = true
               }
               is TerminalEvent.Closed -> {
                 _phase.value = if (event.reason == CloseReason.NeedsTakeover) TerminalPhase.NeedsTakeover else TerminalPhase.Closed(event.reason)

@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -59,6 +61,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
@@ -112,10 +123,11 @@ private val STREAM_KEYS = listOf("Home" to VTermKey.HOME, "End" to VTermKey.END,
 private val SHIFT_KEYS = setOf("up", "down", "left", "right", "tab")
 
 /**
- * Keys of the row the sticky Ctrl goes with: with an arrow it moves by words. herdr sends Ctrl with a digit, Enter or
- * Tab as the plain key. A letter for Ctrl comes from the keyboard, typed into the prompt.
+ * Keys of the row the sticky Ctrl goes with: with an arrow it moves by words, and Ctrl+Enter is Claude Code's "send
+ * now". To a program that hasn't asked for the kitty keyboard protocol herdr sends Ctrl with a digit, Enter or Tab as the
+ * plain key; Claude Code asks for it. A letter for Ctrl comes from the keyboard, typed into the prompt.
  */
-private val CTRL_KEYS = setOf("up", "down", "left", "right")
+private val CTRL_KEYS = setOf("up", "down", "left", "right", "enter")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -279,6 +291,13 @@ fun AgentScreen(
         shift = false
         ctrl = false
       }
+      // Ctrl+Enter in the prompt, from a keyboard or with the sticky Ctrl; not while a just-started agent isn't ready, as
+      // the send button.
+      fun sendNow() {
+        if (view?.starting != true) viewModel.sendPrompt(now = true)
+        shift = false
+        ctrl = false
+      }
       val phase by viewModel.stream.phase.collectAsStateWithLifecycle()
       // A stream key the stream didn't take, as when it broke a moment ago: one note at a time, as on the terminal screen.
       LaunchedEffect(viewModel.stream) {
@@ -308,15 +327,20 @@ fun AgentScreen(
               next.text == sentWithCtrl[0] -> Unit
               typed == null -> draft.value = next
               else -> {
-                // Ctrl goes with the next character typed: a Latin letter goes to the agent as Ctrl and that letter,
-                // anything else into the prompt as usual.
+                // Ctrl goes with the next character typed: a Latin letter goes to the agent as Ctrl and that letter, Enter
+                // sends the prompt at once, anything else goes into the prompt as usual.
                 ctrl = false
                 val letter = typed.lowercaseChar()
-                if (letter in 'a'..'z') {
-                  viewModel.sendKeys(listOf("ctrl+$letter"))
-                  sentWithCtrl[0] = next.text
-                } else {
-                  draft.value = next
+                when {
+                  letter in 'a'..'z' -> {
+                    viewModel.sendKeys(listOf("ctrl+$letter"))
+                    sentWithCtrl[0] = next.text
+                  }
+                  typed == '\n' -> {
+                    sendNow()
+                    sentWithCtrl[0] = next.text
+                  }
+                  else -> draft.value = next
                 }
               }
             }
@@ -344,6 +368,7 @@ fun AgentScreen(
             )
           },
           onSend = viewModel::sendPrompt,
+          onSendNow = { sendNow() },
         )
       }
     }
@@ -588,7 +613,8 @@ private fun CloseDialog(pane: PaneInfo, board: Board?, onConfirm: () -> Unit, on
 
 /**
  * The prompt, with [snippets] before it. While a just-started agent isn't ready, text can be typed but not sent: herdr
- * would refuse it. Nor while the previous prompt is [sending]: one at a time, they reach the agent in order.
+ * would refuse it. Nor while the previous prompt is [sending]: one at a time, they reach the agent in order. Ctrl+Enter
+ * from a keyboard goes to [onSendNow], where the field would start a new line.
  */
 @Composable
 private fun PromptRow(
@@ -600,6 +626,7 @@ private fun PromptRow(
   sending: Boolean,
   snippets: @Composable () -> Unit,
   onSend: () -> Unit,
+  onSendNow: () -> Unit,
 ) {
   Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
     snippets()
@@ -609,7 +636,13 @@ private fun PromptRow(
       keyboardOptions = keyboard,
       placeholder = { Text(stringResource(if (starting) R.string.agent_starting else R.string.agent_prompt_hint)) },
       maxLines = 4,
-      modifier = Modifier.weight(1f).focusRequester(focus).testTag("prompt"),
+      modifier =
+        Modifier.weight(1f).focusRequester(focus).testTag("prompt").onPreviewKeyEvent {
+          val ctrlEnter = (it.key == Key.Enter || it.key == Key.NumPadEnter) && it.isCtrlPressed && !it.isShiftPressed && !it.isAltPressed && !it.isMetaPressed
+          // Once for a press: held down, the key repeats.
+          if (ctrlEnter && it.type == KeyEventType.KeyDown && it.nativeKeyEvent.repeatCount == 0) onSendNow()
+          ctrlEnter
+        },
     )
     IconButton(onClick = onSend, enabled = value.text.isNotBlank() && !starting && !sending, modifier = Modifier.testTag("sendPrompt")) {
       Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.agent_send))
@@ -679,8 +712,9 @@ private fun SnippetsMenu(snippets: List<Snippet>, canSave: Boolean, onInsert: (S
 private data class SnippetRow(val id: Int, val text: String, val onStart: String?)
 
 /**
- * The snippets to change, delete or add to; blank ones and repeats go when the list is saved. A snippet can also go to
- * an agent by itself when the phone starts one: [agents] are those the server has, once known.
+ * The snippets to change, reorder, delete or add to; blank ones and repeats go when the list is saved. Their order is
+ * the menu's, and the one they go in to an agent at its start. A snippet can also go to an agent by itself when the
+ * phone starts one: [agents] are those the server has, once known.
  */
 @Composable
 private fun SnippetsDialog(snippets: List<Snippet>, agents: List<AgentKind>?, onSave: (List<Snippet>) -> Unit, onDismiss: () -> Unit) {
@@ -688,6 +722,12 @@ private fun SnippetsDialog(snippets: List<Snippet>, agents: List<AgentKind>?, on
   var nextId by remember { mutableIntStateOf(rows.size) }
   fun change(id: Int, edit: (SnippetRow) -> SnippetRow) {
     rows = rows.map { if (it.id == id) edit(it) else it }
+  }
+  fun move(id: Int, step: Int) {
+    val from = rows.indexOfFirst { it.id == id }
+    val to = from + step
+    if (from < 0 || to !in rows.indices) return
+    rows = rows.toMutableList().apply { add(to, removeAt(from)) }
   }
   AlertDialog(
     onDismissRequest = onDismiss,
@@ -708,7 +748,18 @@ private fun SnippetsDialog(snippets: List<Snippet>, agents: List<AgentKind>?, on
                   Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.snippets_delete))
                 }
               }
-              StartChoice(row.onStart, agents, Modifier.testTag("snippetStart-$i")) { kind -> change(row.id) { it.copy(onStart = kind) } }
+              // The arrows go by the start choice, so that the text field keeps its width.
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                  StartChoice(row.onStart, agents, Modifier.testTag("snippetStart-$i")) { kind -> change(row.id) { it.copy(onStart = kind) } }
+                }
+                IconButton(onClick = { move(row.id, -1) }, enabled = i > 0, modifier = Modifier.testTag("moveSnippetUp-$i")) {
+                  Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.snippets_move_up))
+                }
+                IconButton(onClick = { move(row.id, 1) }, enabled = i < rows.lastIndex, modifier = Modifier.testTag("moveSnippetDown-$i")) {
+                  Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.snippets_move_down))
+                }
+              }
             }
           }
         }

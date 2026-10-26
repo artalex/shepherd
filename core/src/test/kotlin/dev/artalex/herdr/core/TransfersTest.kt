@@ -19,6 +19,7 @@ import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -47,6 +48,9 @@ class TransfersTest {
     /** The next upload fails with this. */
     @Volatile var failNext: String? = null
 
+    /** Downloads break off after this many bytes, as on a dropped connection. */
+    @Volatile var breakAfter: Int? = null
+
     override suspend fun <T> withFiles(block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T =
       Channel(this).also { channels += it }.use { block(it) { "~/Downloads/herdr-android" } }
   }
@@ -61,6 +65,10 @@ class TransfersTest {
     override fun download(path: String, out: OutputStream, progress: (Long) -> Boolean) {
       waitWhileStuck()
       val bytes = host.files[path] ?: throw IOException("no $path")
+      host.breakAfter?.let {
+        out.write(bytes, 0, it)
+        throw IOException("connection lost")
+      }
       out.write(bytes)
       if (!progress(bytes.size.toLong())) throw CancellationException("download of $path stopped")
     }
@@ -89,10 +97,11 @@ class TransfersTest {
     }
   }
 
-  /** The phone: files to send by their URIs, and downloads saved in memory. */
+  /** The phone: files to send by their URIs, and downloads saved in memory, each in a new place as on Android. */
   private class Phone : PhoneSide {
     val sources = ConcurrentHashMap<String, ByteArray>()
     val saved = ConcurrentHashMap<String, ByteArray>()
+    private val saves = AtomicInteger()
 
     override fun describe(source: String): Pair<String, Long?> = source.substringAfterLast('/') to sources[source]?.size?.toLong()
 
@@ -101,8 +110,10 @@ class TransfersTest {
     override fun exists(location: String): Boolean = saved.containsKey(location)
 
     override fun save(name: String, previous: String?, write: (OutputStream) -> Unit): String {
-      val location = previous?.takeIf { saved.containsKey(it) } ?: "content://downloads/$name"
-      saved[location] = ByteArrayOutputStream().also(write).toByteArray()
+      val bytes = ByteArrayOutputStream().also(write).toByteArray()
+      val location = "content://downloads/${saves.incrementAndGet()}/$name"
+      saved[location] = bytes
+      previous?.let(saved::remove)
       return location
     }
   }
@@ -205,6 +216,30 @@ class TransfersTest {
     transfers.open(file)
     assertEquals(Downloaded("content://downloads/report.txt", "report.txt"), shown.await())
     assertTrue(host.channels.isEmpty())
+  }
+
+  @Test
+  fun changedFileReplacesThePhonesCopyOnlyOnceWhole() = runBlocking {
+    val previous = LocalCopy("content://downloads/report.txt", 10, MTIME - 1)
+    phone.saved[previous.uri] = "отчёт".toByteArray()
+    host.files["/srv/report.txt"] = "новый отчёт".toByteArray()
+    val shelf = FileShelf(FileBook(found = listOf(FoundFile("/srv/report.txt", 21, MTIME, copy = previous))))
+    val transfers = Transfers(scope, phone, host, { shelf }, stallMs = 1_000, graceMs = 100)
+    // The connection drops partway: the shelf keeps the previous copy, the one the phone still has.
+    host.breakAfter = 4
+    transfers.open(shelf.book.value.found.single())
+    until { transfers.downloads.value["/srv/report.txt"]?.error != null }
+    assertEquals(previous, shelf.book.value.found.single().copy)
+    assertEquals(listOf(previous.uri), phone.saved.keys.toList())
+    // The next go brings the whole file, and the shelf has it where the phone put it.
+    host.breakAfter = null
+    val shown = async { withTimeout(5_000) { transfers.downloaded.first() } }
+    delay(50)
+    transfers.open(shelf.book.value.found.single())
+    val location = shown.await().location
+    assertEquals(LocalCopy(location, 21, MTIME), shelf.book.value.found.single().copy)
+    assertEquals(listOf(location), phone.saved.keys.toList())
+    assertEquals("новый отчёт", phone.saved.getValue(location).decodeToString())
   }
 
   @Test

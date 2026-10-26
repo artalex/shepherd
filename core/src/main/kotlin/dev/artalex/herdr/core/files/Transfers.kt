@@ -49,8 +49,9 @@ interface PhoneSide {
   fun exists(location: String): Boolean
 
   /**
-   * A downloaded file named [name], written by [write] over the copy at [previous] if the phone can still write that
-   * one, or as a new file otherwise; returns where it went.
+   * A downloaded file named [name], written by [write] into a new file; returns where it went. Only a whole file takes
+   * the place of the copy at [previous]: a [write] that fails leaves that copy as it was, and nothing else behind.
+   * A copy the phone can't remove, such as one made before a reinstall, is left alone beside the new file.
    */
   fun save(name: String, previous: String?, write: (OutputStream) -> Unit): String
 }

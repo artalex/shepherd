@@ -17,7 +17,8 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 
 - All agents of all your servers in one list, with their status: needs input, working, done, idle.
 - Answer an agent with one tap (1/2/3, Enter, Tab, Esc, arrows, Shift, Ctrl, Ctrl+C, Home, End, PgUp, PgDn) or send it
-  a prompt.
+  a prompt. Ctrl+Enter sends a prompt to Claude Code at once, as in its terminal: a prompt sent while Claude works
+  doesn't wait for the end of its turn.
 - Snippets for the prompt: text you send often, such as `/effort max`, saved once and put in from a menu. A snippet can
   also go on its own to each new session of a chosen agent that you start from the app, once the agent is ready.
 - Notifications when an agent needs input or finishes, with the phone locked too.

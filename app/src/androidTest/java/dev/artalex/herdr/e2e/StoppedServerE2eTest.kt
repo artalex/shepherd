@@ -11,12 +11,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
 import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -24,8 +26,9 @@ import org.junit.Test
 /**
  * A herdr server that stops and comes back, as after `herdr server stop` on the host. The list says the server isn't
  * running, whether it stopped before the app connected or under a live connection, and shows the session again once
- * the server is back; a prompt sent meanwhile stays in its field, and terminal input says it went nowhere. The tests stop
- * a session of their own: the other tests' servers stay up.
+ * the server is back; a prompt sent meanwhile stays in its field, and terminal input says it went nowhere. A pane opened
+ * again while the server is away shows no old picture of it. The tests stop a session of their own: the other tests'
+ * servers stay up.
  */
 @OptIn(ExperimentalTestApi::class)
 class StoppedServerE2eTest {
@@ -132,11 +135,46 @@ class StoppedServerE2eTest {
         compose.onNodeWithTag("xkey-Esc").assertIsNotEnabled()
         compose.onNodeWithTag("paste").assertIsNotEnabled()
         // A key from the soft keyboard, as termlib passes it on: it has nowhere to go, and the screen says so.
-        InstrumentationRegistry.getInstrumentation().runOnMainSync { server.streams.of(pane).emulator.dispatchCharacter(0, 'a'.code) }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { checkNotNull(server.streams.of(pane).emulator.value).dispatchCharacter(0, 'a'.code) }
         compose.waitUntilExactlyOneExists(hasText(text(R.string.terminal_input_lost)), 10_000)
       } finally {
         fixture.startServer()
       }
+    }
+  }
+
+  @Test
+  fun paneComesBackWithoutItsOldPicture() {
+    val server = fixture.connectApp(container)
+    launchApp(compose, "paneComesBackWithoutItsOldPicture") { scenario ->
+      compose.scrollListTo(paneTag(pane))
+      compose.onNodeWithTag(paneTag(pane)).performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 10_000)
+      // termlib finds the links in what it shows: one on the screen makes the phone's picture of the pane readable.
+      val old = "https://old-" + System.currentTimeMillis().toString().takeLast(5) + ".example.com"
+      fixture.type(pane, "echo $old")
+      compose.waitUntil(15_000) { server.emulatorOf(pane)?.getUrls()?.any { it.url.startsWith(old) } == true }
+      // Away from the app for longer than a moment: the emulator goes with the stream, the old picture with it.
+      scenario.moveToState(Lifecycle.State.CREATED)
+      waitFor(10_000) { server.emulatorOf(pane) == null }
+      try {
+        // Back with the server stopped, no frame comes: the screen waits for one rather than show the old picture.
+        fixture.stopServer()
+        scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitUntilExactlyOneExists(hasText(text(R.string.agent_no_screen)), 10_000)
+        assertTrue(server.emulatorOf(pane)?.getUrls().orEmpty().none { it.url.startsWith(old) })
+      } finally {
+        fixture.startServer()
+      }
+    }
+  }
+
+  /** Waits for [condition] off the compose rule, which has nothing to wait for while the activity is stopped. */
+  private fun waitFor(timeoutMs: Long, condition: () -> Boolean) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (!condition()) {
+      check(System.currentTimeMillis() < deadline) { "still not so after $timeoutMs ms" }
+      Thread.sleep(100)
     }
   }
 }

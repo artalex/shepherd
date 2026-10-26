@@ -36,6 +36,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
@@ -98,6 +99,7 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
   }
   val phase by stream.phase.collectAsStateWithLifecycle()
   val closed by stream.paneClosed.collectAsStateWithLifecycle()
+  val emulator by stream.emulator.collectAsStateWithLifecycle()
   val context = LocalContext.current
   // The button in the extra row, the selection menu and the keyboard's paste key all paste through here.
   val paste: () -> Unit = { clipboardText(context)?.let(viewModel::paste) }
@@ -150,17 +152,22 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
         )
       }
       Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black).wheelScroll(stream, selection).testTag("terminal").onSizeChanged { terminalHeight = it.height }) {
-        Terminal(
-          stream.emulator,
-          modifier = Modifier.fillMaxSize(),
-          typeface = rememberTerminalTypeface(),
-          keyboardEnabled = true,
-          focusRequester = focus,
-          modifierManager = viewModel.modifiers,
-          onSelectionControllerAvailable = { selection.controller = it },
-          onPasteRequest = paste,
-          onHyperlinkClick = openLink,
-        )
+        emulator?.let {
+          // A new emulator, empty until the stream's first frame, gets a view of its own.
+          key(it) {
+            Terminal(
+              it,
+              modifier = Modifier.fillMaxSize(),
+              typeface = rememberTerminalTypeface(),
+              keyboardEnabled = true,
+              focusRequester = focus,
+              modifierManager = viewModel.modifiers,
+              onSelectionControllerAvailable = { controller -> selection.controller = controller },
+              onPasteRequest = paste,
+              onHyperlinkClick = openLink,
+            )
+          }
+        }
         PhaseOverlay(phase, onReconnect = stream::reconnect, onTakeOver = stream::takeOver)
         // Over the bottom of the terminal, as on the agent screen, rather than over the extra keys.
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter)) {

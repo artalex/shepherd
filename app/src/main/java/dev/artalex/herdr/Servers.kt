@@ -11,11 +11,13 @@ import dev.artalex.herdr.connection.SessionRepository
 import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.host.HerdrHost
 import dev.artalex.herdr.core.servers.ServerConfig
+import dev.artalex.herdr.core.store.PerPane
 import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.store.lastSnapshot
 import dev.artalex.herdr.data.KeyVault
 import dev.artalex.herdr.data.ServerStore
 import dev.artalex.herdr.files.FileTransfers
+import dev.artalex.herdr.ui.agent.PromptDraft
 import dev.artalex.herdr.ui.terminal.PaneStreams
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -51,12 +53,22 @@ class Server(
   /** Shared text and files for the prompts of the panes; see [PromptInbox]. It learns of closed panes from the snapshots. */
   val inbox = PromptInbox()
 
+  /** The panes' live terminals for their screens; see [PaneStreams]. They learn of closed panes from the snapshots too. */
+  val streams = PaneStreams(this)
+
+  /**
+   * The prompts being written on the panes' agent screens. A draft outlives its screen, which takes its model along: the
+   * pane opened again has its text back. A closed pane's draft goes with it.
+   */
+  val drafts = PerPane { PromptDraft() }
+
   val sessions =
     SessionRepository(connection, scope) {
       inbox.seen(it.snapshot)
+      streams.seen(it.snapshot)
+      drafts.seen(it.snapshot)
       onSnapshot(id, it)
     }
-  val streams = PaneStreams(this)
   val files = FileTransfers(app, this, transfers)
 
   /** What follows agents the phone started: a launch the pane can't run, then their snippets; see [AgentStarts]. */
@@ -75,6 +87,7 @@ class Server(
   fun dispose() {
     connection.dispose()
     files.dispose()
+    streams.close()
     scope.cancel()
   }
 }
