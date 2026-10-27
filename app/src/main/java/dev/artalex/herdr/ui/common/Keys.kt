@@ -1,7 +1,12 @@
 package dev.artalex.herdr.ui.common
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -10,7 +15,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -27,7 +38,37 @@ fun KeyTarget(content: @Composable () -> Unit) = CompositionLocalProvider(LocalM
 fun RowKey(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) =
   Key(label, onClick, modifier, ButtonDefaults.outlinedButtonColors(), enabled)
 
-/** Shift or Ctrl in such a row: as big as the other keys, and filled while it is on. */
+/**
+ * A row of keys over the keyboard. Fn stays at its start while the rest scrolls, and switches the rest between the
+ * [usual] keys and the [function] ones, F1–F12; each set keeps where it was scrolled to. [keyModifier] goes to Fn as
+ * to the other keys of the row, [tag] to the part that scrolls.
+ */
+@Composable
+fun KeyRow(
+  tag: String,
+  modifier: Modifier = Modifier,
+  keyModifier: Modifier = Modifier,
+  usual: LazyListScope.() -> Unit,
+  function: LazyListScope.() -> Unit,
+) {
+  var functionKeys by rememberSaveable { mutableStateOf(false) }
+  val usualRow = rememberLazyListState()
+  val functionRow = rememberLazyListState()
+  Row(modifier, horizontalArrangement = Arrangement.spacedBy(KEY_GAP), verticalAlignment = Alignment.CenterVertically) {
+    ModKey("Fn", on = functionKeys, onClick = { functionKeys = !functionKeys }, modifier = keyModifier.testTag("mod-fn"))
+    LazyRow(
+      state = if (functionKeys) functionRow else usualRow,
+      horizontalArrangement = Arrangement.spacedBy(KEY_GAP),
+      verticalAlignment = Alignment.CenterVertically,
+      modifier = Modifier.weight(1f).testTag(tag),
+      content = if (functionKeys) function else usual,
+    )
+  }
+}
+
+private val KEY_GAP = 6.dp
+
+/** Shift, Ctrl, Alt or Fn in such a row: as big as the other keys, and filled while it is on. */
 @Composable
 fun ModKey(label: String, on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) =
   Key(

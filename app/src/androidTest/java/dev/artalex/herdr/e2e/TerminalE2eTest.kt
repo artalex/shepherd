@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.text.InputType
 import android.view.inputmethod.InputConnection
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -221,6 +222,28 @@ class TerminalE2eTest {
       shell("input keycombination KEYCODE_CTRL_LEFT KEYCODE_SHIFT_LEFT KEYCODE_C")
       type("cd")
       waitPane { s -> s.lines().any { it.trim() == "^[[99:67;6u^[[99;5u^[[1;3A^[[1;5Fab^[[99:67;6ucd" } }
+    }
+  }
+
+  @Test
+  fun functionKeysComeWithFnAndTakeTheModifiers() {
+    fixture.type(pane, "cat -v")
+    launchApp(compose, "functionKeysComeWithFnAndTakeTheModifiers") {
+      openTerminal()
+      waitLive()
+      // Fn swaps the extra keys for F1–F12, with Ctrl, Alt and Shift first.
+      compose.onNodeWithTag("mod-fn").performClick()
+      compose.onNodeWithTag("mod-ctrl").assertIsDisplayed()
+      Screens.take(compose, "06c-terminal-function-keys")
+      // Alone the terminal types the key itself, with a modifier herdr encodes it.
+      xkey("xkey-F2")
+      xkey("mod-alt")
+      xkey("xkey-F1")
+      xkey("xkey-F10")
+      // Fn doesn't scroll away with the row, and brings the usual keys back.
+      compose.onNodeWithTag("mod-fn").assertIsDisplayed().performClick()
+      xkey("xkey-Enter")
+      waitPane { s -> s.lines().any { it.trim() == "^[OQ^[[1;3P^[[21~" } }
     }
   }
 

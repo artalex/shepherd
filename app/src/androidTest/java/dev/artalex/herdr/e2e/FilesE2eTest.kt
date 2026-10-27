@@ -147,14 +147,16 @@ class FilesE2eTest {
 
   @Test
   fun pathsOnTheScreenDownloadAndOpen() {
-    // The long name wraps over several rows at the phone's width; the relative path starts in the shell's folder.
+    // The long name wraps over several rows at the phone's width; the relative path starts in the shell's folder. A file
+    // link comes as Codex shows where it saved a picture: broken after a slash, the name %-escaped.
     val shot = "$dir/shot-$run.png"
     val long = "$dir/pictures/очень-длинное-имя-скриншота-чтобы-путь-не-влез-в-строку-$run.png"
     val apk = "$dir/build/app-$run.apk"
+    val linked = "$dir/codex/картинка-$run.png"
     val missing = "$dir/нет-такого-$run.txt"
     val spaced = "$dir/с пробелом $run.txt"
     fixture.exec(
-      "mkdir -p '$dir/pictures' '$dir/build' && head -c 3000 /dev/urandom > '$shot' && echo картинка > '$long' && head -c 5000 /dev/urandom > '$apk' && echo текст > '$spaced'"
+      "mkdir -p '$dir/pictures' '$dir/build' '$dir/codex' && head -c 3000 /dev/urandom > '$shot' && echo картинка > '$long' && head -c 5000 /dev/urandom > '$apk' && echo ссылка > '$linked' && echo текст > '$spaced'"
     )
     val shotBytes = fixture.exec("base64 -w0 '$shot'").let { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }
     val pane = fixture.workspace("e2e-files-$run")
@@ -166,13 +168,14 @@ class FilesE2eTest {
       // Printed once the pane has the phone's width, so the terminal wraps the long path.
       waitForPhoneWidth(pane)
       val tilde = "~/.cache/herdr-android-e2e/$dirName"
-      fixture.type(pane, "clear; printf '%s\\n' 'Скриншот: $tilde/shot-$run.png.' 'Длинный: $tilde/pictures/очень-длинное-имя-скриншота-чтобы-путь-не-влез-в-строку-$run.png' 'Сборка: build/app-$run.apk' 'Нет: $tilde/нет-такого-$run.txt'")
+      fixture.type(pane, "clear; printf '%s\\n' 'Скриншот: $tilde/shot-$run.png.' 'Длинный: $tilde/pictures/очень-длинное-имя-скриншота-чтобы-путь-не-влез-в-строку-$run.png' 'Сборка: build/app-$run.apk' '  └ Saved to: file://$dir/codex/' '${Uri.encode("картинка-$run.png")}' 'Нет: $tilde/нет-такого-$run.txt'")
       fixture.waitForScreen(pane, pump = { compose.waitForIdle() }) { it.contains("Нет:") }
 
       openFiles()
       waitFor("found-$shot")
       waitFor("found-$long")
       waitFor("found-$apk")
+      waitFor("found-$linked")
       waitFor("path-$missing")
       compose.onNodeWithTag("path-$missing").assert(hasText(text(R.string.files_missing), substring = true))
       scrollTo("found-$shot")

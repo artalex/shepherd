@@ -22,13 +22,15 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 - Shift, Ctrl and Alt work with every key, from the row, the soft keyboard or a hardware one, on the agent screen and
   in the terminal: Ctrl+Shift+C reaches Claude Code as itself and a shell as Ctrl+C, the way a desktop terminal sends
   them. With the Russian layout, Ctrl and Alt take the Latin key of the letter.
+- F1–F12 behind Fn at the start of the key row, with Shift, Ctrl and Alt, on the agent screen and in the terminal.
 - Snippets for the prompt: text you send often, such as `/effort max`, saved once and put in from a menu. A snippet can
   also go on its own to each new session of a chosen agent that you start from the app, once the agent is ready.
 - Notifications when an agent needs input or finishes, with the phone locked too.
 - A full terminal for any pane.
 - Web links on the screen open in the phone's browser with a tap, on the agent screen and in the terminal.
-- Files: download a file the agent mentions on screen, such as a screenshot or an APK, and open it; send files from
-  the phone to the machine. The files window lists the files of its pane or of the pane's whole workspace.
+- Files: download a file the agent mentions on screen by its path or a `file://` link, such as a screenshot or an APK,
+  and open it; send files from the phone to the machine. The files window lists the files of its pane or of the pane's
+  whole workspace.
 - Share to Shepherd from any app: pick an agent, and shared text goes into its prompt, shared files go to the machine
   with their paths after the text. Or start a new agent for the share with a task, such as "find the recipe of this
   dish": the app starts the agent, sends it its start snippets, the files, then the task with the shared text and the

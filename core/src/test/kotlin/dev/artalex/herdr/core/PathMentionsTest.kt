@@ -39,8 +39,78 @@ class PathMentionsTest {
       """
       Ссылка https://example.com/a/b.png, and/or src/main, 1/2, 24/7
       Сокращённо app/src/…/Y.kt и …/Z.kt, папка ~/devel/x/, ~user/a.txt, просто / и //x.txt
+      Чужой хост file://server/share/a.txt, папка file:///home/u/dir/, сокращённо file:///home/u/…/a.png
       """.trimIndent()
     assertEquals(emptyList(), shown(screen))
+  }
+
+  @Test
+  fun fileLinksStandForTheirPaths() {
+    val screen =
+      """
+      Сохранил: file:///home/u/.codex/generated_images/t1/exec-1.png, копия <file://localhost/tmp/a.txt>
+      FILE:///tmp/B.TXT и file:///home/u/%D0%A4%D0%BE%D1%82%D0%BE%20%E2%84%961.png.
+      """.trimIndent()
+    assertEquals(
+      listOf("/home/u/.codex/generated_images/t1/exec-1.png", "/tmp/a.txt", "/tmp/B.TXT", "/home/u/Фото №1.png"),
+      shown(screen),
+    )
+  }
+
+  @Test
+  fun fileLinkCodexBrokeAfterSlashesIsJoined() {
+    // Codex 0.164 at 56 columns, where it saved a picture: it breaks the link after a slash, well before the edge. The
+    // rows are as long as on a real screen; the user's name and the ids are made up.
+    val screen =
+      """
+      • Generated Image:
+        └ A red bicycle by a wall
+        └ Saved to: file:///home/someone/.codex/
+      generated_images/019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b/
+      exec-5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0.png
+      """.trimIndent()
+    val path = "/home/someone/.codex/generated_images/019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b/exec-5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0.png"
+    assertEquals(listOf(PathMention(path, listOf(path))), findPathMentions(screen, 56))
+  }
+
+  @Test
+  fun pathCodexBrokeAfterASlashAndAHyphenIsJoined() {
+    // Codex breaks a long word where a line may break, after a slash or a hyphen, as soon as the rest doesn't fit.
+    val screen =
+      """
+      • Картинка: /home/u/devel/photo-book/output/
+        imagegen/2026-10-27/retouched-portrait-final-
+        version.png готова.
+      """.trimIndent()
+    val path = "/home/u/devel/photo-book/output/imagegen/2026-10-27/retouched-portrait-final-version.png"
+    assertEquals(
+      listOf(PathMention(path, listOf(path, "/home/u/devel/photo-book/output/imagegen/2026-10-27/retouched-portrait-final-"))),
+      findPathMentions(screen, 50),
+    )
+  }
+
+  @Test
+  fun lineEndingInAFolderOrAHyphenDoesntRunIntoTheNext() {
+    val screen =
+      """
+      - Скриншоты: /home/u/Pictures/links/
+      - Готово, что-
+      то ещё: /tmp/a.txt
+      """.trimIndent()
+    assertEquals(listOf("/tmp/a.txt"), shown(screen, 60))
+  }
+
+  @Test
+  fun fileLinkWithANameWiderThanARowIsJoined() {
+    // The name doesn't fit after the slash, nor in a row of its own: its rest goes on, cut in the middle of an escape.
+    val screen = "  └ Saved to: file:///tmp/x/\n%D0%BA%D0%B0%D1%80%D1%82%D0%B8%D0%BD%D0%\nBA%D0%B0.png"
+    assertEquals(listOf("/tmp/x/картинка.png"), shown(screen, 40))
+  }
+
+  @Test
+  fun joinedWordThatIsNoPathGivesItsPieces() {
+    val mentions = findPathMentions("Папка /home/u/dir/\n/tmp/aaaaaaaaaa.txt", 25)
+    assertEquals(listOf(PathMention("/tmp/aaaaaaaaaa.txt", listOf("/tmp/aaaaaaaaaa.txt"))), mentions)
   }
 
   @Test

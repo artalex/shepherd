@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
+import dev.artalex.herdr.ui.common.KeyRow
 import dev.artalex.herdr.ui.common.KeyTarget
 import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.RowKey
@@ -88,6 +89,9 @@ private val EXTRA_KEYS =
     ExtraKey.Key("PgUp", VTermKey.PAGEUP), ExtraKey.Key("PgDn", VTermKey.PAGEDOWN), ExtraKey.Key("Home", VTermKey.HOME), ExtraKey.Key("End", VTermKey.END),
     ExtraKey.Char("|", '|'), ExtraKey.Char("/", '/'), ExtraKey.Char("~", '~'), ExtraKey.Char("-", '-'),
   )
+
+/** The keys behind Fn: alone the terminal types them, with modifiers herdr encodes them, as the other keys of the row. */
+private val FUNCTION_KEYS = (1..12).map { ExtraKey.Key("F$it", VTermKey.FUNCTION_0 + it) }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -221,26 +225,20 @@ private fun PhaseOverlay(phase: TerminalPhase, onReconnect: () -> Unit, onTakeOv
   }
 }
 
-/** The extra keys; they and the paste button wait for a [live] stream, while Ctrl, Alt and Shift can be set ahead. */
+/**
+ * The extra keys, F1–F12 behind Fn; they and the paste button wait for a [live] stream, while Ctrl, Alt and Shift, in
+ * both sets, can be set ahead.
+ */
 @Composable
 private fun ExtraKeysRow(viewModel: TerminalViewModel, live: Boolean, onPaste: () -> Unit) {
   val modifiers = viewModel.modifiers
-  LazyRow(
-    horizontalArrangement = Arrangement.spacedBy(6.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("extraKeys"),
-  ) {
-    item {
-      KeyTarget {
-        OutlinedIconButton(onClick = onPaste, enabled = live, modifier = Modifier.touchOnly().testTag("paste")) {
-          Icon(painterResource(R.drawable.ic_paste), contentDescription = stringResource(R.string.terminal_paste))
-        }
-      }
-    }
+  fun LazyListScope.modifierKeys() {
     item { ModKey("Ctrl", on = modifiers.ctrl, onClick = { modifiers.ctrl = !modifiers.ctrl }, modifier = Modifier.touchOnly().testTag("mod-ctrl")) }
     item { ModKey("Alt", on = modifiers.alt, onClick = { modifiers.alt = !modifiers.alt }, modifier = Modifier.touchOnly().testTag("mod-alt")) }
     item { ModKey("Shift", on = modifiers.shift, onClick = { modifiers.shift = !modifiers.shift }, modifier = Modifier.touchOnly().testTag("mod-shift")) }
-    items(EXTRA_KEYS) { key ->
+  }
+  fun LazyListScope.extraKeys(keys: List<ExtraKey>) =
+    items(keys) { key ->
       RowKey(
         key.label,
         onClick = {
@@ -253,7 +251,26 @@ private fun ExtraKeysRow(viewModel: TerminalViewModel, live: Boolean, onPaste: (
         enabled = live,
       )
     }
-  }
+  KeyRow(
+    tag = "extraKeys",
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+    keyModifier = Modifier.touchOnly(),
+    usual = {
+      item {
+        KeyTarget {
+          OutlinedIconButton(onClick = onPaste, enabled = live, modifier = Modifier.touchOnly().testTag("paste")) {
+            Icon(painterResource(R.drawable.ic_paste), contentDescription = stringResource(R.string.terminal_paste))
+          }
+        }
+      }
+      modifierKeys()
+      extraKeys(EXTRA_KEYS)
+    },
+    function = {
+      modifierKeys()
+      extraKeys(FUNCTION_KEYS)
+    },
+  )
 }
 
 private val COMPACT_HEIGHT = 480.dp

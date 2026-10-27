@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -94,6 +94,7 @@ import dev.artalex.herdr.core.store.promptPath
 import dev.artalex.herdr.ui.agents.paneSubtitle
 import dev.artalex.herdr.ui.agents.paneTitle
 import dev.artalex.herdr.ui.common.KeyModifiers
+import dev.artalex.herdr.ui.common.KeyRow
 import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.PaneKey
 import dev.artalex.herdr.ui.common.RowKey
@@ -129,6 +130,9 @@ private val CTRL_KEYS = listOf("Ctrl+C" to "c")
  * (0.9.5 answers "unsupported key home"). While another client controls the pane there is no stream, and they are off.
  */
 private val STREAM_KEYS = listOf("Home" to VTermKey.HOME, "End" to VTermKey.END, "PgUp" to VTermKey.PAGEUP, "PgDn" to VTermKey.PAGEDOWN)
+
+/** The keys of the row behind Fn, by herdr's names as the usual ones: herdr encodes them, with modifiers too. */
+private val FUNCTION_KEYS = (1..12).map { "F$it" to "f$it" }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -295,25 +299,33 @@ fun AgentScreen(
           if (snackbar.currentSnackbarData == null) launch { snackbar.showSnackbar(resources.getString(R.string.terminal_input_lost)) }
         }
       }
-      LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("quickKeys"),
-      ) {
-        items(QUICK_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
+      // Shift, Ctrl and Alt are in both sets of the row: after the arrows with the usual keys, first with F1–F12.
+      fun LazyListScope.modifierKeys() {
         item { ModKey("Shift", on = modifiers.shift, onClick = { modifiers.shift = !modifiers.shift }, modifier = Modifier.testTag("mod-shift")) }
         item { ModKey("Ctrl", on = modifiers.ctrl, onClick = { modifiers.ctrl = !modifiers.ctrl }, modifier = Modifier.testTag("mod-ctrl")) }
         item { ModKey("Alt", on = modifiers.alt, onClick = { modifiers.alt = !modifiers.alt }, modifier = Modifier.testTag("mod-alt")) }
-        items(CTRL_KEYS) { (label, key) -> RowKey(label, onClick = { send(key, KeyModifiers(ctrl = true)) }, modifier = Modifier.testTag("key-ctrl+$key")) }
-        items(STREAM_KEYS) { (label, key) ->
-          RowKey(
-            label,
-            onClick = { viewModel.sendKey(paneKey(key, modifiers.take())) },
-            modifier = Modifier.testTag("key-" + label.lowercase()),
-            enabled = phase == TerminalPhase.Live,
-          )
-        }
       }
+      KeyRow(
+        tag = "quickKeys",
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        usual = {
+          items(QUICK_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
+          modifierKeys()
+          items(CTRL_KEYS) { (label, key) -> RowKey(label, onClick = { send(key, KeyModifiers(ctrl = true)) }, modifier = Modifier.testTag("key-ctrl+$key")) }
+          items(STREAM_KEYS) { (label, key) ->
+            RowKey(
+              label,
+              onClick = { viewModel.sendKey(paneKey(key, modifiers.take())) },
+              modifier = Modifier.testTag("key-" + label.lowercase()),
+              enabled = phase == TerminalPhase.Live,
+            )
+          }
+        },
+        function = {
+          modifierKeys()
+          items(FUNCTION_KEYS) { (label, key) -> RowKey(label, onClick = { send(key) }, modifier = Modifier.testTag("key-$key")) }
+        },
+      )
       if (pane?.agent != null) {
         PromptRow(
           value = draft.value,

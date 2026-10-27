@@ -3,6 +3,8 @@ package dev.artalex.herdr.e2e
 import android.text.InputType
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
@@ -171,6 +173,28 @@ class AgentsE2eTest {
       key("key-right")
       key("key-enter")
       fixture.waitForScreen(shell) { screen -> screen.lines().any { it.trim() == "^@^[[C" } }
+    }
+  }
+
+  @Test
+  fun functionKeysComeWithFnAndTakeTheModifiers() {
+    fixture.type(shell, "cat -v")
+    launchApp(compose, "functionKeysComeWithFnAndTakeTheModifiers") {
+      openPane(shell)
+      // Fn swaps the row's keys for F1–F12, with Shift, Ctrl and Alt first.
+      compose.onNodeWithTag("mod-fn").performClick()
+      compose.onAllNodes(hasTestTag("key-1")).assertCountEquals(0)
+      compose.onNodeWithTag("mod-shift").assertIsDisplayed()
+      Screens.take(compose, "08d-agent-function-keys")
+      key("key-f1")
+      key("mod-shift")
+      key("key-f5")
+      key("mod-ctrl")
+      key("key-f12")
+      // Fn doesn't scroll away with the row, and brings the usual keys back.
+      compose.onNodeWithTag("mod-fn").assertIsDisplayed().performClick()
+      key("key-enter")
+      fixture.waitForScreen(shell) { screen -> screen.lines().any { it.trim() == "^[OP^[[15;2~^[[24;5~" } }
     }
   }
 

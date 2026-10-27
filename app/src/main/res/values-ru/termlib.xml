@@ -1,0 +1,17 @@
+<!-- termlib's own strings: lint doesn't see their English in termlib's values, nor termlib using them. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="ExtraTranslation,UnusedResources">
+    <!--
+      termlib's words stay English on a phone set to Russian too, as they were before termlib 0.3.14 brought its own
+      translations: Copy, Paste and the rest of its selection menu are terms people know as they are. A string termlib
+      adds goes here as well, with the text of its values.
+    -->
+    <string name="terminal_selection_copy">Copy</string>
+    <string name="terminal_selection_mode_character">Mode: Character</string>
+    <string name="terminal_selection_mode_line">Mode: Line</string>
+    <string name="terminal_selection_mode_word">Mode: Word</string>
+    <string name="terminal_selection_more_options_description">More options</string>
+    <string name="terminal_selection_paste">Paste</string>
+    <string name="terminal_selection_select_all">Select All</string>
+    <string name="terminal_selection_select_all_visible">Select All Visible</string>
+    <string name="terminal_selection_share">Share</string>
+</resources>
