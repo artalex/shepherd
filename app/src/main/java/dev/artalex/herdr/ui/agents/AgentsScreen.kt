@@ -48,6 +48,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.artalex.herdr.AgentTask
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Share
 import dev.artalex.herdr.connection.ConnectionProblem
@@ -70,7 +71,8 @@ import kotlinx.coroutines.withContext
  * Agents of every server, under the server's name and its switch. A server that is off shows only that line and
  * isn't connected; switching it on connects it, and a host key to accept is asked about right here. The + by a
  * connected server's name starts an agent there, in a session without panes too, and shows it. While a [share] from
- * another app waits, the bar asks which agent it goes to and says what came; its cross drops the share.
+ * another app waits, the bar asks which agent it goes to and says what came; its cross drops the share. A new agent
+ * may get a task for the share instead of showing: once it has started, the share is the task's, and [onGaveTask].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,12 +81,16 @@ fun AgentsScreen(
   share: Share?,
   onOpenPane: (serverId: String, paneId: String) -> Unit,
   onDropShare: () -> Unit,
+  onGaveTask: () -> Unit,
   onOpenSettings: () -> Unit,
   onAddServer: () -> Unit,
 ) {
   val sections by viewModel.sections.collectAsStateWithLifecycle()
   val newAgent by viewModel.newAgent.collectAsStateWithLifecycle()
+  val telegramReady by viewModel.telegramReady.collectAsStateWithLifecycle()
+  val answerInTelegram by viewModel.answerInTelegram.collectAsStateWithLifecycle()
   LaunchedEffect(viewModel) { viewModel.opened.collect { (serverId, paneId) -> onOpenPane(serverId, paneId) } }
+  LaunchedEffect(viewModel) { viewModel.gave.collect { onGaveTask() } }
   var refreshing by remember { mutableStateOf(false) }
   LaunchedEffect(refreshing) {
     if (refreshing) {
@@ -138,7 +144,17 @@ fun AgentsScreen(
   }
 
   sections?.let { HostKeyDialog(it, onTrust = viewModel::trustHostKey, onDecline = { id -> viewModel.setActive(id, false) }) }
-  newAgent?.let { NewAgentDialog(it, onStart = viewModel::startNewAgent, onForget = viewModel::forgetFolder, onDismiss = viewModel::closeNewAgent) }
+  newAgent?.let { form ->
+    NewAgentDialog(
+      form,
+      onStart = { kind, folder, task, telegram -> viewModel.startNewAgent(kind, folder, task?.let { AgentTask(it, share?.text, share?.files.orEmpty(), telegram) }) },
+      onForget = viewModel::forgetFolder,
+      onDismiss = viewModel::closeNewAgent,
+      sharing = share != null,
+      telegramReady = telegramReady,
+      answerInTelegram = answerInTelegram,
+    )
+  }
 }
 
 /** The list's bar while a share waits for its agent: the question, what came, and the cross that drops it. */

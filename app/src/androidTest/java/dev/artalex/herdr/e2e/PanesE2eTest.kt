@@ -15,9 +15,6 @@ import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
 import dev.artalex.herdr.core.snippets.Snippet
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -83,7 +80,6 @@ class PanesE2eTest {
 
   private fun waitForList() = compose.waitUntilExactlyOneExists(hasTestTag("board"), 15_000)
 
-  private fun JsonObject.field(name: String): String? = get(name)?.jsonPrimitive?.contentOrNull
 
   @Test
   fun switcherOpensAnotherPaneInPlace() {

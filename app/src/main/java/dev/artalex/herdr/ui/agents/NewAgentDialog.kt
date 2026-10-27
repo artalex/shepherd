@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -49,21 +51,36 @@ import dev.artalex.herdr.core.model.AgentKind
  * Starts an agent on a server from the agent list: one of the agents herdr can start on its machine, in a folder
  * there. The folder field has [NewAgent.folder] until the user types another or picks one from its menu,
  * [NewAgent.folders]; the × of a folder there calls [onForget].
+ *
+ * While a share waits ([sharing]), the dialog also takes a task for the agent, what to do with what was shared, which
+ * goes with it; and, with a Telegram bot set up ([telegramReady]), whether the answer goes there, as the last task had
+ * it ([answerInTelegram]). [onStart] gets the task, null for a blank one: then the agent's screen shows, as without a
+ * task, with the share in its prompt.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewAgentDialog(form: NewAgent, onStart: (AgentKind, String) -> Unit, onForget: (String) -> Unit, onDismiss: () -> Unit) {
+fun NewAgentDialog(
+  form: NewAgent,
+  onStart: (kind: AgentKind, folder: String, task: String?, telegram: Boolean) -> Unit,
+  onForget: (String) -> Unit,
+  onDismiss: () -> Unit,
+  sharing: Boolean = false,
+  telegramReady: Boolean = false,
+  answerInTelegram: Boolean = false,
+) {
   var chosen by rememberSaveable(form.serverId) { mutableStateOf<String?>(null) }
   // Null for the form's folder, which the host may yet make shorter.
   var typed by rememberSaveable(form.serverId) { mutableStateOf<String?>(null) }
   var menu by remember { mutableStateOf(false) }
+  var task by rememberSaveable(form.serverId) { mutableStateOf("") }
+  var telegram by rememberSaveable(form.serverId) { mutableStateOf(answerInTelegram) }
   val folder = typed ?: form.folder
   val agents = form.agents
   // The machine's first agent in AgentKind order, Claude Code if it has it, until the user picks another.
   val kind = agents?.firstOrNull { it.kind == chosen } ?: agents?.firstOrNull()
   val missing = form.missingFolder != null && form.missingFolder == folder.trim()
   val canStart = kind != null && folder.isNotBlank() && !form.starting
-  val start = { if (canStart && kind != null) onStart(kind, folder) }
+  val start = { if (canStart && kind != null) onStart(kind, folder, task.takeIf { sharing && it.isNotBlank() }, telegramReady && telegram) }
 
   AlertDialog(
     onDismissRequest = onDismiss,
@@ -114,6 +131,30 @@ fun NewAgentDialog(form: NewAgent, onStart: (AgentKind, String) -> Unit, onForge
                 contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
                 modifier = Modifier.testTag("folderOption-${choice.shown}"),
               )
+            }
+          }
+        }
+        if (sharing) {
+          OutlinedTextField(
+            value = task,
+            onValueChange = { task = it },
+            label = { Text(stringResource(R.string.new_agent_task)) },
+            supportingText = { Text(stringResource(R.string.new_agent_task_hint)) },
+            minLines = 2,
+            maxLines = 6,
+            modifier = Modifier.fillMaxWidth().testTag("newAgentTask"),
+          )
+          if (telegramReady) {
+            Row(
+              Modifier.fillMaxWidth()
+                .toggleable(value = telegram, enabled = task.isNotBlank(), role = Role.Checkbox, onValueChange = { telegram = it })
+                .padding(vertical = 4.dp)
+                .testTag("newAgentTelegram"),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Checkbox(checked = telegram, onCheckedChange = null, enabled = task.isNotBlank())
+              Spacer(Modifier.width(12.dp))
+              Text(stringResource(R.string.new_agent_telegram))
             }
           }
         }

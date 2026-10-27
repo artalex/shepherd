@@ -10,17 +10,20 @@ import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.connection.SessionRepository
 import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.host.HerdrHost
+import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.servers.FolderSightings
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.store.PerPane
 import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.store.lastSnapshot
+import dev.artalex.herdr.core.store.promptWhenReady
 import dev.artalex.herdr.data.KeyVault
 import dev.artalex.herdr.data.ServerStore
 import dev.artalex.herdr.files.FileTransfers
 import dev.artalex.herdr.ui.agent.PromptDraft
 import dev.artalex.herdr.ui.terminal.PaneStreams
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -86,15 +89,27 @@ class Server(
   /** The connected host, if any: screens use it for requests that aren't polling. */
   val host: HerdrHost? get() = (connection.state.value as? ConnectionState.Connected)?.host
 
+  /** The session's snapshots as they come; collecting them keeps the session polled. */
+  val snapshots: Flow<SessionSnapshot> get() = sessions.state.mapNotNull { (it as? SessionState.Ready)?.snapshot }
+
   /** Keeps the folders of [snapshot]'s panes that showed up since the previous one; see [FolderSightings]. */
   fun seeFolders(snapshot: SessionSnapshot) {
     val new = folders.newIn(snapshot)
     if (new.isNotEmpty()) store.addFolders(id, new)
   }
 
+  /** Pane [paneId] as the last snapshot has it; null for a pane it doesn't have, yet or any more. */
+  fun paneOf(paneId: String): PaneInfo? = sessions.state.value.lastSnapshot?.panes?.firstOrNull { it.paneId == paneId }
+
   /** Where files of pane [paneId] come from, by the last snapshot; null for a pane it doesn't have yet. */
-  fun originOf(paneId: String): FileOrigin? =
-    sessions.state.value.lastSnapshot?.panes?.firstOrNull { it.paneId == paneId }?.let { FileOrigin(it.terminalId, it.workspaceId) }
+  fun originOf(paneId: String): FileOrigin? = paneOf(paneId)?.let { FileOrigin(it.terminalId, it.workspaceId) }
+
+  /**
+   * Sends [prompts] in order to the agent in [paneId] once it is ready, as [promptWhenReady] tells; returns those not sent
+   * within [timeoutMs].
+   */
+  suspend fun promptAgentWhenReady(paneId: String, prompts: List<String>, timeoutMs: Long): List<String> =
+    promptWhenReady(paneId, prompts, snapshots, timeoutMs) { text -> (host?.api ?: throw IOException("not connected")).promptAgent(paneId, text) }
 
   fun dispose() {
     connection.dispose()

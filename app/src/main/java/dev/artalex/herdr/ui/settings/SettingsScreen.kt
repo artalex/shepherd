@@ -42,8 +42,8 @@ import dev.artalex.herdr.ShareActivity
 import dev.artalex.herdr.core.ssh.SshKeyPair
 
 /**
- * The servers, each opening its form, the notifications, and the phone's key, which every server needs in its
- * authorized_keys.
+ * The servers, each opening its form, the notifications, the Telegram bot for answers, and the phone's key, which every
+ * server needs in its authorized_keys.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +76,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onOpenServe
       }
       HorizontalDivider(Modifier.padding(vertical = 16.dp))
       NotificationSection(viewModel)
+      HorizontalDivider(Modifier.padding(vertical = 16.dp))
+      TelegramSection(viewModel)
       HorizontalDivider(Modifier.padding(vertical = 16.dp))
       Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { KeySection(key, onGenerate = viewModel::generateKey) }
     }

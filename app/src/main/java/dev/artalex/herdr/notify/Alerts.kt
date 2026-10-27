@@ -19,7 +19,8 @@ import dev.artalex.herdr.ui.agents.paneTitle
 
 /**
  * The agent notifications: one per agent, tagged "server/pane", in the channel of its status. Waiting for an answer
- * comes with sound, finished is quiet; the user changes either in the system settings. A tap opens the agent.
+ * comes with sound, finished is quiet; the user changes either in the system settings. A tap opens the agent. A task
+ * that didn't reach its agent ([dev.artalex.herdr.AgentTasks]) has a notification of its own, with the same tag.
  */
 class Alerts(private val context: Context) {
   private val manager = context.getSystemService(NotificationManager::class.java)
@@ -29,8 +30,29 @@ class Alerts(private val context: Context) {
       listOf(
         NotificationChannel(BLOCKED_CHANNEL, context.getString(R.string.alerts_channel_blocked), NotificationManager.IMPORTANCE_HIGH),
         NotificationChannel(DONE_CHANNEL, context.getString(R.string.alerts_channel_done), NotificationManager.IMPORTANCE_LOW),
+        NotificationChannel(TASK_CHANNEL, context.getString(R.string.alerts_channel_task), NotificationManager.IMPORTANCE_HIGH),
       )
     )
+  }
+
+  /**
+   * The task given to the agent in [paneId] of [server] didn't reach it, for [reason]; a tap opens the agent, whose
+   * prompt has the task, [inPrompt], unless the agent never started. [title] is the agent's as on the agent list, if a
+   * snapshot had it yet; [withServer] names the server too, as with several on.
+   */
+  fun taskNotGiven(server: ServerConfig, withServer: Boolean, paneId: String, title: String?, reason: String, inPrompt: Boolean) {
+    val text = if (inPrompt) context.getString(R.string.task_not_given_text, reason) else reason
+    val notification =
+      NotificationCompat.Builder(context, TASK_CHANNEL)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(context.getString(R.string.task_not_given_title, title ?: paneId))
+        .setContentText(text)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        .setSubText(if (withServer) server.title else null)
+        .setAutoCancel(true)
+        .setContentIntent(openAgent(server.id, paneId))
+        .build()
+    if (allowed()) manager.notify(tag(server.id, paneId), TASK_ID, notification)
   }
 
   /** Notifications can show: the system allows them and, from Android 13 on, the user gave the permission. */
@@ -76,16 +98,19 @@ class Alerts(private val context: Context) {
     }
   }
 
-  /** The user opened the agent: its notification has done its job. */
-  fun dismiss(serverId: String, paneId: String) = manager.cancel(tag(serverId, paneId), ALERT_ID)
+  /** The user opened the agent: its notifications have done their job. */
+  fun dismiss(serverId: String, paneId: String) {
+    manager.cancel(tag(serverId, paneId), ALERT_ID)
+    manager.cancel(tag(serverId, paneId), TASK_ID)
+  }
 
   /** The server is gone, off or moved: its notifications no longer hold. */
   fun dismissServer(serverId: String) {
-    for (shown in shown(serverId)) manager.cancel(shown.tag, ALERT_ID)
+    for (shown in shown(serverId) + shown(serverId, TASK_ID)) manager.cancel(shown.tag, shown.id)
   }
 
-  private fun shown(serverId: String): List<StatusBarNotification> =
-    manager.activeNotifications.filter { it.id == ALERT_ID && it.tag?.substringBefore('/') == serverId }
+  private fun shown(serverId: String, id: Int = ALERT_ID): List<StatusBarNotification> =
+    manager.activeNotifications.filter { it.id == id && it.tag?.substringBefore('/') == serverId }
 
   private fun openAgent(serverId: String, paneId: String): PendingIntent =
     PendingIntent.getActivity(context, 0, intentFor(context, serverId, paneId), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -93,9 +118,13 @@ class Alerts(private val context: Context) {
   companion object {
     const val BLOCKED_CHANNEL = "agent-blocked"
     const val DONE_CHANNEL = "agent-done"
+    const val TASK_CHANNEL = "agent-task"
 
     /** The id of every agent notification; the tag tells them apart. */
     const val ALERT_ID = 2
+
+    /** The id of every notification of a task that didn't reach its agent, tagged as the agent's. */
+    const val TASK_ID = 4
     private const val EXTRA_SERVER = "dev.artalex.herdr.extra.SERVER"
     private const val EXTRA_PANE = "dev.artalex.herdr.extra.PANE"
     private const val EXTRA_STATUS = "dev.artalex.herdr.extra.STATUS"

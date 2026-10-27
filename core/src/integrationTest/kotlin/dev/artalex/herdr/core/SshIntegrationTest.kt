@@ -2,12 +2,19 @@ package dev.artalex.herdr.core
 
 import dev.artalex.herdr.core.host.HostCheck
 import dev.artalex.herdr.core.host.BadSessionName
+import dev.artalex.herdr.core.host.CurlMissing
 import dev.artalex.herdr.core.host.FolderCheck
 import dev.artalex.herdr.core.host.HerdrNotFound
 import dev.artalex.herdr.core.host.HerdrStatusFailed
+import dev.artalex.herdr.core.host.TelegramBot
+import dev.artalex.herdr.core.host.TelegramBotApi
+import dev.artalex.herdr.core.host.TelegramChat
+import dev.artalex.herdr.core.host.TelegramError
 import dev.artalex.herdr.core.host.check
 import dev.artalex.herdr.core.host.checkFolders
+import dev.artalex.herdr.core.host.removeTelegramToken
 import dev.artalex.herdr.core.host.resolveFolder
+import dev.artalex.herdr.core.host.saveTelegramToken
 import dev.artalex.herdr.core.ssh.HostKey
 import dev.artalex.herdr.core.ssh.SshConnection
 import dev.artalex.herdr.core.ssh.SshFailure
@@ -20,6 +27,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
@@ -251,6 +259,63 @@ class SshIntegrationTest {
   }
 
   @Test
+  fun telegramTokenIsSavedForTheUserAlone() = runBlocking {
+    val home = File(System.getProperty("user.home")).canonicalFile
+    val dir = Files.createTempDirectory(Files.createDirectories(home.toPath().resolve(".cache")), "htoken").toFile().canonicalFile
+    try {
+      val folder = File(dir, "config dir/herdr-android")
+      connected().use { connection ->
+        val transport = discoverHerdrHost(connection, "~/.local/bin/herdr", server.session).transport
+        val path = transport.saveTelegramToken("1:old", folder.path)
+        assertEquals(File(folder, "telegram-bot-token").path, path)
+        // A later token replaces the earlier one whole, as it is, and only the user may read it or the folder.
+        assertEquals(path, transport.saveTelegramToken("123:a\"b\$c\\d'e", folder.path))
+        assertEquals("123:a\"b\$c\\d'e", File(path).readText())
+        assertEquals(PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(File(path).toPath()))
+        assertEquals(PosixFilePermissions.fromString("rwx------"), Files.getPosixFilePermissions(folder.toPath()))
+        assertEquals(listOf("telegram-bot-token"), folder.list()?.toList())
+        // Taken off with the bot, and taking off what isn't there is no error.
+        transport.removeTelegramToken(folder.path)
+        assertEquals(emptyList(), folder.list()?.toList())
+        transport.removeTelegramToken(folder.path)
+      }
+    } finally {
+      dir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun telegramIsReachedThroughCurlOnTheHost() = runBlocking {
+    val home = File(System.getProperty("user.home")).canonicalFile
+    val dir = Files.createTempDirectory(Files.createDirectories(home.toPath().resolve(".cache")), "hcurl").toFile().canonicalFile
+    try {
+      val curl = File(dir, "curl").also {
+        it.writeText(FAKE_CURL)
+        it.setExecutable(true, true)
+      }
+      val calls = File(dir, "calls")
+      connected().use { connection ->
+        val transport = discoverHerdrHost(connection, "~/.local/bin/herdr", server.session).transport
+        val bot = TelegramBotApi(transport, "1:good", curl.path)
+        assertEquals(TelegramBot("test_bot"), bot.me())
+        // The message from before the look is left out: the chat is the one that writes after it.
+        assertEquals(TelegramChat(42, "Ann Lee"), bot.nextChat(waitMs = 10_000, pollSeconds = 1))
+        bot.send(42, "line one\nline \"two\"")
+        val config = calls.readText()
+        assertTrue(config.contains("data-urlencode = \"offset=-1\""), config)
+        assertTrue(config.contains("data-urlencode = \"offset=7\""), config)
+        assertTrue(config.contains("data-urlencode = \"chat_id=42\"\ndata-urlencode = \"text=line one\\nline \\\"two\\\"\""), config)
+        assertEquals(401, assertFailsWith<TelegramError> { TelegramBotApi(transport, "1:wrong", curl.path).me() }.code)
+        assertEquals(409, assertFailsWith<TelegramError> { TelegramBotApi(transport, "2:busy", curl.path).nextChat(waitMs = 1_000) }.code)
+        assertFailsWith<CurlMissing> { TelegramBotApi(transport, "1:good", File(dir, "no-curl").path).me() }
+        Unit
+      }
+    } finally {
+      dir.deleteRecursively()
+    }
+  }
+
+  @Test
   fun wrongHerdrPathIsReported() = runBlocking {
     connected().use { connection ->
       val e = assertFailsWith<HerdrNotFound> { discoverHerdrHost(connection, "~/nowhere/herdr", server.session) }
@@ -310,3 +375,29 @@ class SshIntegrationTest {
     }
   }
 }
+
+/**
+ * curl for the tests, standing in for the Bot API: keeps the config it gets on stdin in `calls` beside it and answers
+ * as Telegram would. Bot 1:good has an old message and a new one from Ann Lee, 2:busy is polled by another program,
+ * any other token is wrong. A token on its command line fails the call.
+ */
+private val FAKE_CURL =
+  """
+  #!/bin/sh
+  case "${'$'}*" in *bot*) echo "the token is on the command line: ${'$'}*" >&2; exit 2 ;; esac
+  config=${'$'}(cat)
+  printf '%s\n' "${'$'}config" >> "${'$'}(dirname "${'$'}0")/calls"
+  case "${'$'}config" in
+    *'/bot1:good/'*) ;;
+    *'/bot2:busy/'*) echo '{"ok":false,"error_code":409,"description":"Conflict: terminated by other getUpdates request"}'; exit 0 ;;
+    *) echo '{"ok":false,"error_code":401,"description":"Unauthorized"}'; exit 0 ;;
+  esac
+  case "${'$'}config" in
+    *'/getMe"'*) echo '{"ok":true,"result":{"id":1,"is_bot":true,"first_name":"Test","username":"test_bot"}}' ;;
+    *'/getUpdates"'*'"offset=-1"'*) echo '{"ok":true,"result":[{"update_id":5,"message":{"message_id":1,"chat":{"id":7,"type":"private","first_name":"Old"}}}]}' ;;
+    *'/getUpdates"'*'"offset=6"'*) echo '{"ok":true,"result":[{"update_id":6,"message":{"message_id":2,"chat":{"id":42,"type":"private","first_name":"Ann","last_name":"Lee"}}}]}' ;;
+    *'/getUpdates"'*) echo '{"ok":true,"result":[]}' ;;
+    *'/sendMessage"'*) echo '{"ok":true,"result":{"message_id":3}}' ;;
+  esac
+  """
+    .trimIndent() + "\n"

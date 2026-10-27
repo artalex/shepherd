@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Russian, for phones set to Russian; English, the default, is in values. A new string goes into both. -->
     <string name="app_name">Пастух</string>
 
@@ -36,7 +36,7 @@
     <string name="notify_watch_off">Выкл</string>
     <string name="notify_watch_minutes">%1$d мин</string>
     <string name="notify_channels">События и звук</string>
-    <string name="notify_channels_hint">«Агент ждёт ответа» и «Агент закончил» в настройках Android</string>
+    <string name="notify_channels_hint">«Агент ждёт ответа», «Агент закончил» и «Задание не дошло» в настройках Android</string>
     <string name="notify_battery">Работа в фоне</string>
     <string name="notify_battery_unrestricted">Без ограничений: проверки идут вовремя</string>
     <string name="notify_battery_restricted">Android может откладывать проверки на час и больше. Нажмите, чтобы снять ограничения.</string>
@@ -51,6 +51,25 @@
     <string name="watch_notification">Слежу за агентами</string>
     <string name="watch_until">До %1$s, если ничего не изменится</string>
     <string name="watch_stop">Хватит</string>
+
+    <string name="telegram_title">Telegram</string>
+    <string name="telegram_hint">Агенты смогут присылать сюда ответы на задания из «Поделиться» — через вашего бота.</string>
+    <string name="telegram_connect">Подключить бота</string>
+    <string name="telegram_connected">\@%1$s · чат: %2$s</string>
+    <string name="telegram_disconnect">Отключить</string>
+    <string name="telegram_token">Токен бота</string>
+    <string name="telegram_token_hint">От @BotFather. Нужен отдельный бот: Пастух читает его сообщения, чтобы найти ваш чат.</string>
+    <string name="telegram_connect_button">Подключить</string>
+    <string name="telegram_checking">Проверяю токен…</string>
+    <string name="telegram_waiting">Напишите @%1$s любое сообщение: Пастух ждёт его до 2 минут.</string>
+    <string name="telegram_waiting_notification">Пастух ждёт вашего сообщения боту</string>
+    <string name="telegram_hello">Сюда будут приходить ответы агентов из Пастуха.</string>
+    <string name="telegram_bad_token">Telegram не знает такого токена</string>
+    <string name="telegram_busy">Сообщения этого бота уже получает другая программа: для Пастуха нужен отдельный бот</string>
+    <string name="telegram_no_curl">На машине нет curl: установите его там</string>
+    <string name="telegram_no_server">Нет подключённого сервера: Пастух обращается к Telegram через него</string>
+    <string name="telegram_no_message">Сообщение не пришло: попробуйте ещё раз</string>
+    <string name="telegram_error">Telegram: %1$s</string>
 
     <string name="key_title">Ключ телефона</string>
     <string name="key_missing">Ключа ещё нет. Создайте его и добавьте строку в ~/.ssh/authorized_keys на каждом сервере.</string>
@@ -104,6 +123,9 @@
     <string name="new_agent_forget_folder">Убрать %1$s из списка</string>
     <string name="new_agent_start">Запустить</string>
     <string name="new_agent_starting">Запускаю…</string>
+    <string name="new_agent_task">Задание</string>
+    <string name="new_agent_task_hint">Присланный текст и пути файлов Пастух добавит сам. Если оставить пустым, откроется экран агента.</string>
+    <string name="new_agent_telegram">Ответ прислать в Telegram</string>
 
     <string name="status_blocked">Ждёт ответа</string>
     <string name="status_done">Готово</string>
@@ -229,4 +251,14 @@
     <string name="share_drop">Не отправлять</string>
     <string name="share_copied">Скопировано: вставьте в терминале</string>
     <string name="share_not_sent">%1$s не отправлен: %2$s. Повторить можно в окне файлов.</string>
+
+    <string name="tasks_notification">Пастух передаёт задание агенту</string>
+    <string name="alerts_channel_task">Задание не дошло</string>
+    <string name="task_not_given_title">Задание не дошло: %1$s</string>
+    <string name="task_not_given_text">%1$s. Нажмите, чтобы открыть агента: задание — в поле промпта.</string>
+    <string name="task_file_not_sent">%1$s не передан: %2$s</string>
+    <string name="task_program_missing">В оболочке панели нет %1$s</string>
+    <string name="task_not_ready">Агент не был готов 3 минуты</string>
+    <!-- A command for the agent to run: its options keep their two hyphens. -->
+    <string name="task_telegram_note" tools:ignore="TypographyDashes">Когда закончишь, пришли итоговый ответ в Telegram обычным текстом: запиши его в файл и выполни printf \'url = \"https://api.telegram.org/bot%%s/sendMessage\"\\n\' \"$(cat %1$s)\" | curl -sS -K - -d chat_id=%2$d --data-urlencode text@&lt;файл&gt;. Ответ длиннее 4000 символов раздели на несколько сообщений. Файл отправляй так же, только через sendDocument вместо sendMessage и с -F chat_id=%2$d -F document=@&lt;файл&gt; вместо остального. Токен уходит в curl через stdin и не попадает ни в одну командную строку: не выводи его.</string>
 </resources>

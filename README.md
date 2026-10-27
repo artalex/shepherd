@@ -30,7 +30,10 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 - Files: download a file the agent mentions on screen, such as a screenshot or an APK, and open it; send files from
   the phone to the machine. The files window lists the files of its pane or of the pane's whole workspace.
 - Share to Shepherd from any app: pick an agent, and shared text goes into its prompt, shared files go to the machine
-  with their paths after the text.
+  with their paths after the text. Or start a new agent for the share with a task, such as "find the recipe of this
+  dish": the app starts the agent, sends it its start snippets, the files, then the task with the shared text and the
+  paths, and goes back to the app you shared from. The answer can come to Telegram, through a bot of your own connected
+  in the settings.
 - Start an agent from the phone: in a new tab next to another agent, or from the list in any folder of the machine,
   in a session without panes too. The folder is typed or picked from a menu: the home folder and every folder the app
   has seen on the machine, of panes and of agents started from the phone; × takes one off until the app sees it again.
@@ -53,6 +56,8 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
    `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the machine. *Cancel* switches the server off; switched on
    again, it asks again.
 4. Once a server is connected, the app asks once for permission to show notifications.
+5. Optionally, for answers in Telegram: make a bot of its own for Shepherd with @BotFather, then in *Settings →
+   Telegram → Connect a bot* paste its token and send the bot any message. The machine needs curl.
 
 If the app asks to restart the herdr server, the herdr CLI and server are different versions: the terminal works only
 when they match. Restart the server when the agents are idle.
@@ -64,7 +69,11 @@ when they match. Restart the server when the agents are idle.
 - A server's host key is pinned once you have compared its fingerprint; if it changes, the app stops connecting.
 - The app reads the screen and sends keys and prompts; it starts agents, in a tab or a workspace of their own, and
   closes panes only when you tap. It never moves the focus on the desktop. On the host it reads files and writes only
-  to `herdr-android` in the downloads folder (`~/Downloads/herdr-android/` or its XDG counterpart).
+  to `herdr-android` in the downloads folder (`~/Downloads/herdr-android/` or its XDG counterpart), and, for a task
+  whose answer goes to Telegram, the bot's token to `~/.config/herdr-android/telegram-bot-token`, readable by you
+  alone. The prompt names that file, not the token, so the token stays out of the agent's history, and the agent hands
+  it to curl on stdin, off any command line. Disconnecting the bot takes the file off the servers connected then.
+- The phone connects only to your servers. Telegram is reached from the machine, with curl.
 
 ## Build
 

@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -120,6 +121,10 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
       Thread.sleep(200)
     }
   }
+
+  /** A new folder of the test's own on the host, named [prefix] and a random tail, as the host resolves it. */
+  fun tempFolder(prefix: String): String =
+    exec("mkdir -p ~/.cache/herdr-android-e2e && cd \"$(mktemp -d ~/.cache/herdr-android-e2e/$prefix-XXXXX)\" && pwd -P").trim()
 
   /** A new workspace; returns its root pane id. */
   fun workspace(label: String): String =
@@ -284,6 +289,9 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
     private const val ECHO_PY = "import sys\nfor line in sys.stdin:\n    sys.stdout.write(line)\n    sys.stdout.flush()\n"
   }
 }
+
+/** A field of a pane or another object herdr reported, as text. */
+fun JsonObject.field(name: String): String? = get(name)?.jsonPrimitive?.contentOrNull
 
 /** The SHA-256 of [bytes] in hex, as sha256sum prints it. */
 fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

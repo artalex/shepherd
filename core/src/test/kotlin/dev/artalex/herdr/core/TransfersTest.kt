@@ -171,6 +171,48 @@ class TransfersTest {
   }
 
   @Test
+  fun uploadAllWaitsForThePathsInTheOrderGiven() = runBlocking {
+    phone.sources["content://a/big.bin"] = ByteArray(64 * 1024)
+    phone.sources["content://b/фото.png"] = "один".toByteArray()
+    val ends = transfers.uploadAll(listOf("content://a/big.bin", "content://b/фото.png"), origin = null, forPane = "w1:p1")
+    assertEquals(listOf("big.bin", "фото.png"), ends.map { it.name })
+    val paths = ends.map { it.path.getOrThrow() }
+    assertEquals(listOf("/home/user/Downloads/herdr-android/big.bin", "/home/user/Downloads/herdr-android/фото.png"), paths)
+    assertEquals("один", host.files.getValue(paths[1]).decodeToString())
+    // The caller puts the paths into the prompt: none goes to the pane's prompt on its own.
+    assertEquals(emptyList(), ended)
+    assertEquals(emptyList(), transfers.uploads.value)
+    assertEquals(paths.toSet(), shelf.book.value.sent.map { it.path }.toSet())
+  }
+
+  @Test
+  fun uploadAllTellsAFailureAndARetryGoesToThePrompt() = runBlocking {
+    phone.sources["content://picker/отчёт.txt"] = "текст".toByteArray()
+    host.failNext = "disk full"
+    val result = transfers.uploadAll(listOf("content://picker/отчёт.txt", "content://picker/нет.txt"), origin = null, forPane = "w1:p1")
+    assertEquals(listOf("отчёт.txt", "нет.txt"), result.map { it.name })
+    assertEquals("disk full", result[0].path.exceptionOrNull()?.message)
+    assertEquals("cannot read нет.txt", result[1].path.exceptionOrNull()?.message)
+    assertEquals(emptyList(), ended)
+    // A retry from the files window, once the waiting is over, ends as any upload does.
+    transfers.retry(transfers.uploads.value.single { it.name == "отчёт.txt" })
+    until { ended.isNotEmpty() }
+    assertEquals("/home/user/Downloads/herdr-android/отчёт.txt", ended.single().second.getOrThrow())
+    assertEquals("w1:p1", ended.single().first.forPane)
+  }
+
+  @Test
+  fun uploadAllTellsACancel() = runBlocking {
+    phone.sources["content://picker/big.bin"] = ByteArray(1024)
+    host.stuck = true
+    val result = async { transfers.uploadAll(listOf("content://picker/big.bin"), origin = null) }
+    until { transfers.uploads.value.isNotEmpty() && host.channels.isNotEmpty() }
+    transfers.cancel(transfers.uploads.value.single())
+    assertEquals("upload of big.bin cancelled", withTimeout(5_000) { result.await() }.single().path.exceptionOrNull()?.message)
+    assertEquals(emptyList(), ended)
+  }
+
+  @Test
   fun cancelledStuckUploadLetsGoOfItsChannel() = runBlocking {
     phone.sources["content://picker/big.bin"] = ByteArray(1024)
     host.stuck = true

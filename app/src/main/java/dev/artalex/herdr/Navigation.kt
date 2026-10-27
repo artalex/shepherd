@@ -69,7 +69,7 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
       entryProvider {
         entry<Agents> {
           AgentsScreen(
-            viewModel { AgentsViewModel(servers, container.notifications, container.alerts, container.snippets) },
+            viewModel { AgentsViewModel(servers, container.notifications, container.alerts, container.snippets, container.agentTasks, container.telegram) },
             share = currentShare.value,
             onOpenPane = { serverId, paneId ->
               // The pane picked for a share gets it, a new agent started from the list too.
@@ -80,6 +80,12 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
               backStack.add(Agent(serverId, paneId))
             },
             onDropShare = onShared,
+            // The task goes on in the background: back to the app the share came from. The activity stays, and with it
+            // the access to the shared files, which are still on their way.
+            onGaveTask = {
+              onShared()
+              activity?.moveTaskToBack(true)
+            },
             onOpenSettings = { backStack.add(Settings) },
             onAddServer = { backStack.add(ServerEditor(null)) },
           )

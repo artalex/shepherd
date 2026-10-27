@@ -39,6 +39,11 @@ class PromptDraft {
   fun failed() {
     val text = pending ?: return
     pending = null
+    putBack(text)
+  }
+
+  /** [text] that didn't reach the agent goes into the field, on a line of its own before anything typed since. */
+  fun putBack(text: String) {
     val typed = value
     value =
       if (typed.text.isEmpty()) {

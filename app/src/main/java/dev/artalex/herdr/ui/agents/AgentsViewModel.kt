@@ -3,6 +3,8 @@ package dev.artalex.herdr.ui.agents
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.artalex.herdr.AgentTask
+import dev.artalex.herdr.AgentTasks
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.Servers
@@ -25,6 +27,7 @@ import dev.artalex.herdr.core.store.lastSnapshot
 import dev.artalex.herdr.core.store.startSession
 import dev.artalex.herdr.data.NotificationSettings
 import dev.artalex.herdr.data.SnippetStore
+import dev.artalex.herdr.data.TelegramSettings
 import dev.artalex.herdr.notify.Alerts
 import dev.artalex.herdr.ui.agent.UiMessage
 import kotlin.coroutines.cancellation.CancellationException
@@ -78,6 +81,8 @@ class AgentsViewModel(
   private val notifications: NotificationSettings,
   private val alerts: Alerts,
   private val snippets: SnippetStore,
+  private val tasks: AgentTasks,
+  private val telegram: TelegramSettings,
 ) : ViewModel() {
   /** The servers in the order they were added; null until the first look at them. */
   val sections: StateFlow<List<ServerSection>?> =
@@ -134,6 +139,18 @@ class AgentsViewModel(
   /** A server and a pane to show: the agent just started from the list. */
   val opened: Flow<Pair<String, String>> = _opened.receiveAsFlow()
 
+  private val _gave = Channel<Unit>(Channel.BUFFERED)
+
+  /** The agent just started from the list got the task of a share, which goes on in the background: the list may go. */
+  val gave: Flow<Unit> = _gave.receiveAsFlow()
+
+  /** Whether a task may ask for its answer in Telegram: the bot is set up in the settings. */
+  val telegramReady: StateFlow<Boolean> =
+    telegram.bot.map { it != null }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), telegram.bot.value != null)
+
+  /** Whether the last task asked for its answer in Telegram, for the next one to start out so. */
+  val answerInTelegram: StateFlow<Boolean> = telegram.answerThere
+
   /**
    * Opens the dialog that starts an agent on server [id]. Its folder is the one the phone last started an agent in,
    * else a pane's, else the home folder: a session without panes offers none of its own. Its menu has the home folder
@@ -170,11 +187,12 @@ class AgentsViewModel(
   }
 
   /**
-   * Starts a [kind] agent in [folder] on the dialog's server (see startSession), with its start snippets, and shows it.
-   * The folder is looked up on the host first: herdr would open one the host doesn't have as the home folder. The
-   * folder as the host resolved it is remembered for the next agent from the list.
+   * Starts a [kind] agent in [folder] on the dialog's server (see startSession), with its start snippets, and shows it;
+   * an agent with a [task] from a share gets it in the background instead ([AgentTasks]), and the list may go. The
+   * folder is looked up on the host first: herdr would open one the host doesn't have as the home folder. The folder as
+   * the host resolved it is remembered for the next agent from the list.
    */
-  fun startNewAgent(kind: AgentKind, folder: String) {
+  fun startNewAgent(kind: AgentKind, folder: String, task: AgentTask? = null) {
     val form = _newAgent.value?.takeUnless { it.starting } ?: return
     val id = form.serverId
     _newAgent.value = form.copy(starting = true, missingFolder = null, problem = null)
@@ -193,10 +211,16 @@ class AgentsViewModel(
           return@launch
         }
         val paneId = host.api.startSession(resolved, kind)
-        server.agentStarts.started(paneId, kind, snippets.snippets.value.onStart(kind))
+        val started = server.agentStarts.started(paneId, kind, snippets.snippets.value.onStart(kind), task = task != null)
         servers.setAgentFolder(id, resolved)
         _newAgent.value = null
-        _opened.send(id to paneId)
+        if (task == null) {
+          _opened.send(id to paneId)
+        } else {
+          if (telegram.bot.value != null) telegram.setAnswerThere(task.telegram)
+          tasks.give(server, paneId, started, task)
+          _gave.send(Unit)
+        }
         server.sessions.refreshNow()
       } catch (e: CancellationException) {
         throw e

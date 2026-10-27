@@ -90,6 +90,7 @@ import dev.artalex.herdr.core.model.AgentStatus
 import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.snippets.Snippet
 import dev.artalex.herdr.core.store.Board
+import dev.artalex.herdr.core.store.promptPath
 import dev.artalex.herdr.ui.agents.paneSubtitle
 import dev.artalex.herdr.ui.agents.paneTitle
 import dev.artalex.herdr.ui.common.KeyModifiers
@@ -843,7 +844,7 @@ private fun typedChar(before: TextFieldValue, after: TextFieldValue): Char? {
 private fun TextFieldValue.withCapital(at: Int): TextFieldValue = copy(text = text.substring(0, at) + text[at].uppercaseChar() + text.substring(at + 1))
 
 /** [path] put in at the cursor, with spaces from the words around it; in quotes if it has spaces of its own. */
-private fun TextFieldValue.withPath(path: String): TextFieldValue = withWord(if (path.any { it.isWhitespace() }) "\"$path\"" else path, spaceAtEnd = true)
+private fun TextFieldValue.withPath(path: String): TextFieldValue = withWord(promptPath(path), spaceAtEnd = true)
 
 /** Shared [text] put in at the cursor, with spaces from the words around it: the paths of shared files may follow. */
 private fun TextFieldValue.withText(text: String): TextFieldValue = withWord(text, spaceAtEnd = true)

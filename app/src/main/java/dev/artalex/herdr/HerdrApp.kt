@@ -10,6 +10,7 @@ import dev.artalex.herdr.data.KeyVault
 import dev.artalex.herdr.data.NotificationSettings
 import dev.artalex.herdr.data.ServerStore
 import dev.artalex.herdr.data.SnippetStore
+import dev.artalex.herdr.data.TelegramSettings
 import dev.artalex.herdr.notify.AgentWatch
 import dev.artalex.herdr.notify.Alerts
 import kotlinx.coroutines.CoroutineScope
@@ -38,19 +39,27 @@ class HerdrApp : Application() {
 }
 
 /** Manual dependency wiring: the app is small enough not to need a DI framework. */
-class AppContainer(app: Application) {
+class AppContainer(val app: Application) {
   val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   val keys = KeyVault(app)
 
   /** How many file transfers run now, on all servers: the transfer service keeps the app going while there are any. */
   val transfers = MutableStateFlow(0)
 
+  /** How many tasks go to agents now ([AgentTasks]): the transfer service keeps the app going for them too. */
+  val tasks = MutableStateFlow(0)
+
+  /** The settings wait for the user's message to a Telegram bot, which they write in Telegram: the service keeps the app going. */
+  val telegramWaits = MutableStateFlow(0)
+
   val notifications = NotificationSettings(app)
   val snippets = SnippetStore(app)
   val filesSettings = FilesSettings(app)
+  val telegram = TelegramSettings(app)
   val alerts = Alerts(app)
 
   // The watch gets every snapshot; it is made right after, and no snapshot comes before the app runs.
   val servers: Servers = Servers(app, ServerStore(app), keys, scope, transfers) { serverId, ready -> watch.seen(serverId, ready) }
   val watch: AgentWatch = AgentWatch(app, servers, keys, notifications, alerts, scope)
+  val agentTasks = AgentTasks(app, servers, telegram, alerts, tasks)
 }

@@ -2,17 +2,14 @@ package dev.artalex.herdr
 
 import android.util.Log
 import dev.artalex.herdr.core.model.AgentKind
-import dev.artalex.herdr.core.model.SessionSnapshot
-import dev.artalex.herdr.core.store.SessionState
 import dev.artalex.herdr.core.store.launchLacksProgram
-import dev.artalex.herdr.core.store.promptWhenReady
 import java.io.IOException
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.launch
 
 /** What went wrong after the phone started an agent, for the agent screen to tell. */
 sealed interface AgentStartProblem {
@@ -33,22 +30,25 @@ class AgentStarts(private val server: Server) {
   private val _problems = Channel<AgentStartProblem>(Channel.BUFFERED)
   val problems: Flow<AgentStartProblem> = _problems.receiveAsFlow()
 
-  /** An agent of [kind] started in [paneId]; [prompts] go to it once it is ready. */
-  fun started(paneId: String, kind: AgentKind, prompts: List<String>) {
-    server.scope.launch {
-      val snapshots = server.sessions.state.mapNotNull { (it as? SessionState.Ready)?.snapshot }
-      if (lacksProgram(paneId, kind, snapshots)) {
+  /**
+   * An agent of [kind] started in [paneId]; [prompts] go to it once it is ready. Completes once they went, with what
+   * went wrong, null if nothing did. An agent started for a [task] has its task wait for that ([AgentTasks]), which
+   * tells of snippets that didn't go itself; a missing program still comes out of [problems], for the agent screen to
+   * say what fixes it.
+   */
+  fun started(paneId: String, kind: AgentKind, prompts: List<String>, task: Boolean = false): Deferred<AgentStartProblem?> =
+    server.scope.async {
+      if (lacksProgram(paneId, kind)) {
         Log.w(TAG, "the shell of $paneId has no ${kind.executable}: the agent didn't start")
-        _problems.send(AgentStartProblem.ProgramMissing(kind.executable))
-        return@launch
+        return@async AgentStartProblem.ProgramMissing(kind.executable).also { _problems.send(it) }
       }
-      if (prompts.isNotEmpty()) sendWhenReady(paneId, prompts, snapshots)
+      if (prompts.isEmpty()) return@async null
+      sendWhenReady(paneId, prompts)?.also { if (!task) _problems.send(it) }
     }
-  }
 
-  private suspend fun lacksProgram(paneId: String, kind: AgentKind, snapshots: Flow<SessionSnapshot>): Boolean =
+  private suspend fun lacksProgram(paneId: String, kind: AgentKind): Boolean =
     try {
-      launchLacksProgram(paneId, kind.executable, snapshots) {
+      launchLacksProgram(paneId, kind.executable, server.snapshots) {
         val api = server.host?.api ?: throw IOException("not connected")
         api.readPane(paneId, ansi = false).text
       }
@@ -60,27 +60,24 @@ class AgentStarts(private val server: Server) {
       false
     }
 
-  private suspend fun sendWhenReady(paneId: String, prompts: List<String>, snapshots: Flow<SessionSnapshot>) {
+  private suspend fun sendWhenReady(paneId: String, prompts: List<String>): AgentStartProblem? =
     try {
-      val left =
-        promptWhenReady(paneId, prompts, snapshots, TIMEOUT_MS) { text ->
-          val api = server.host?.api ?: throw IOException("not connected")
-          api.promptAgent(paneId, text)
-        }
-      if (left.isNotEmpty()) {
+      val left = server.promptAgentWhenReady(paneId, prompts, TIMEOUT_MS)
+      if (left.isEmpty()) {
+        null
+      } else {
         Log.w(TAG, "agent in $paneId wasn't ready within $TIMEOUT_MS ms; ${left.size} start snippets not sent")
-        _problems.send(AgentStartProblem.SnippetsNotSent(left, late = true))
+        AgentStartProblem.SnippetsNotSent(left, late = true)
       }
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
       Log.w(TAG, "start snippets for $paneId failed: ${e.message}")
-      _problems.send(AgentStartProblem.SnippetsNotSent(prompts, late = false))
+      AgentStartProblem.SnippetsNotSent(prompts, late = false)
     }
-  }
 
-  private companion object {
-    const val TAG = "HerdrAgentStarts"
+  companion object {
+    private const val TAG = "HerdrAgentStarts"
 
     /** A new agent may first ask whether to trust its folder: time for the user to answer. */
     const val TIMEOUT_MS = 3 * 60_000L

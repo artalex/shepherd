@@ -6,9 +6,11 @@ import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +35,9 @@ data class Transfer(val done: Long, val total: Long?, val error: String? = null)
  * once it is on the host, or that it didn't get there.
  */
 data class Upload(val id: Long, val source: String, val name: String, val size: Long?, val transfer: Transfer, val origin: FileOrigin? = null, val forPane: String? = null)
+
+/** How a file of [Transfers.uploadAll] ended: its [name], and its [path] on the host or why it didn't get there. */
+data class UploadEnd(val name: String, val path: Result<String>)
 
 /** A file on the phone for the user to see: where the phone keeps it, and its name. */
 data class Downloaded(val location: String, val name: String)
@@ -102,6 +107,9 @@ class Transfers(
   private val jobs = ConcurrentHashMap<String, Job>()
   private val ids = AtomicLong()
 
+  /** The uploads of an [uploadAll] that haven't ended yet, by their ids: their ends go to it. */
+  private val waiting = ConcurrentHashMap<Long, CompletableDeferred<UploadEnd>>()
+
   /** Shows [file]: the copy on the phone if it is the current version, or downloads it first. */
   fun open(file: FoundFile) {
     if (jobs[downloadKey(file.path)]?.isActive == true) return
@@ -125,6 +133,28 @@ class Transfers(
       }
     }
   }
+
+  /**
+   * Sends the files at [sources] to the host as [upload] does and waits for them: how each ended, in the order of
+   * [sources]. The caller puts the paths into a prompt itself, so [uploadEnded] doesn't hear of these; a retry from the
+   * files window later does, as of any upload.
+   */
+  suspend fun uploadAll(sources: List<String>, origin: FileOrigin?, forPane: String? = null): List<UploadEnd> =
+    sources
+      .map { source ->
+        val end = CompletableDeferred<UploadEnd>()
+        scope
+          .launch {
+            val (name, size) = withContext(Dispatchers.IO) { phone.describe(source) }
+            val item = Upload(ids.incrementAndGet(), source, name, size, Transfer(0, size), origin, forPane)
+            waiting[item.id] = end
+            send(item)
+          }
+          // Cancelled before its transfer began, as when the server goes; a transfer that began tells how it ended.
+          .invokeOnCompletion { cause -> if (cause != null) end.complete(UploadEnd(source.substringAfterLast('/'), Result.failure(cause))) }
+        end
+      }
+      .awaitAll()
 
   fun retry(upload: Upload) = send(upload)
 
@@ -181,21 +211,32 @@ class Transfers(
 
   private fun send(item: Upload) {
     _uploads.update { list -> listOf(item.copy(transfer = Transfer(0, item.size))) + list.filter { it.id != item.id } }
-    launchTransfer(uploadKey(item.id)) {
-      try {
-        val path = host.withFiles { files, uploadDir -> put(files, uploadDir, item) }
-        dismiss(item)
-        uploadEnded(item, Result.success(path))
-      } catch (e: CancellationException) {
-        dismiss(item)
-        throw e
-      } catch (e: Exception) {
-        log("upload of ${item.name} failed: ${e.message}")
-        val error = e.message ?: e.javaClass.simpleName
-        _uploads.update { list -> list.map { if (it.id == item.id) it.copy(transfer = it.transfer.copy(error = error)) else it } }
-        uploadEnded(item, Result.failure(IOException(error, e)))
+    val job =
+      launchTransfer(uploadKey(item.id)) {
+        try {
+          val path = host.withFiles { files, uploadDir -> put(files, uploadDir, item) }
+          dismiss(item)
+          ended(item, Result.success(path))
+        } catch (e: CancellationException) {
+          dismiss(item)
+          throw e
+        } catch (e: Exception) {
+          log("upload of ${item.name} failed: ${e.message}")
+          val error = e.message ?: e.javaClass.simpleName
+          _uploads.update { list -> list.map { if (it.id == item.id) it.copy(transfer = it.transfer.copy(error = error)) else it } }
+          ended(item, Result.failure(IOException(error, e)))
+        }
       }
+    // A cancel, before the transfer began too, ends it for whoever waits.
+    job.invokeOnCompletion { cause ->
+      if (cause != null) waiting.remove(item.id)?.complete(UploadEnd(item.name, Result.failure(IOException("upload of ${item.name} cancelled", cause))))
     }
+  }
+
+  /** How [item] ended, for the [uploadAll] that waits for it, if any, otherwise for [uploadEnded]. */
+  private fun ended(item: Upload, result: Result<String>) {
+    val waiter = waiting.remove(item.id)
+    if (waiter != null) waiter.complete(UploadEnd(item.name, result)) else uploadEnded(item, result)
   }
 
   /** Sends [item] to the host and returns its path there. */
@@ -225,10 +266,11 @@ class Transfers(
     if (_downloads.value[path]?.percent != transfer.percent) _downloads.update { it + (path to transfer) }
   }
 
-  private fun launchTransfer(key: String, block: suspend () -> Unit) {
+  private fun launchTransfer(key: String, block: suspend () -> Unit): Job {
     val job = scope.launch { block() }
     jobs[key] = job
     job.invokeOnCompletion { jobs.remove(key, job) }
+    return job
   }
 
   private companion object {

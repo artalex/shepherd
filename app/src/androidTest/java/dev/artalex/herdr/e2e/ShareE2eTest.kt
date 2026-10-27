@@ -1,12 +1,15 @@
 package dev.artalex.herdr.e2e
 
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationManager
 import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
@@ -14,6 +17,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
@@ -25,6 +29,9 @@ import dev.artalex.herdr.MainActivity
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.ShareActivity
+import dev.artalex.herdr.core.snippets.Snippet
+import dev.artalex.herdr.data.TelegramBotSettings
+import dev.artalex.herdr.notify.Alerts
 import java.io.ByteArrayOutputStream
 import java.io.File
 import org.junit.After
@@ -38,11 +45,12 @@ import org.junit.Test
  * Sharing from other apps against real herdr and sshd. A share opens the agent list, which asks for the agent; the
  * text goes into the prompt of the agent picked, the files to the host with their paths after the text. The first share
  * starts the app, the next ones come to it while it shows an agent. The picture comes from the shell as from another
- * app, with read access to it only, as the share menu gives.
+ * app, with read access to it only, as the share menu gives. A new agent started for a share may get a task with it,
+ * which goes on in the background, the app off the screen.
  */
 @OptIn(ExperimentalTestApi::class)
 class ShareE2eTest {
-  @get:Rule val localNetwork: GrantPermissionRule = GrantPermissionRule.grant("android.permission.ACCESS_LOCAL_NETWORK")
+  @get:Rule val permissions: GrantPermissionRule = GrantPermissionRule.grant("android.permission.ACCESS_LOCAL_NETWORK", "android.permission.POST_NOTIFICATIONS")
   @get:Rule val compose = createEmptyComposeRule()
 
   private lateinit var fixture: HostFixture
@@ -51,8 +59,11 @@ class ShareE2eTest {
   private val run = System.currentTimeMillis().toString().takeLast(5)
   private lateinit var home: String
   private val uploads get() = "$home/.cache/herdr-android-e2e/share-$run"
+  private val tokens get() = "$home/.cache/herdr-android-e2e/telegram-$run"
   private val phoneFiles = mutableListOf<File>()
+  private val folders = mutableListOf<String>()
   private var picture: String? = null
+  private var snippets: List<Snippet> = emptyList()
 
   @Before
   fun seed() {
@@ -63,16 +74,29 @@ class ShareE2eTest {
     home = fixture.exec("printf %s \"\$HOME\"")
     server = fixture.connectApp(context.container)
     server.files.uploadDirOverride = "~/.cache/herdr-android-e2e/share-$run"
+    snippets = context.container.snippets.snippets.value
+    // The token for agents goes to a folder of the test's own, never to the user's config folder on the machine.
+    context.container.telegram.tokenDirOverride = tokens
   }
 
   @After
   fun cleanUp() {
     finishActivities()
     if (::server.isInitialized) server.files.uploadDirOverride = null
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+      context.container.snippets.set(snippets)
+      context.container.telegram.set(null)
+      context.container.telegram.setAnswerThere(false)
+      context.container.telegram.tokenDirOverride = null
+    }
     phoneFiles.forEach { it.delete() }
     picture?.let { Device.shell("content delete --uri $it") }
+    context.getSystemService(NotificationManager::class.java).cancelAll()
     if (::fixture.isInitialized) {
-      if (::home.isInitialized) fixture.exec("rm -rf '$uploads'")
+      if (::home.isInitialized) {
+        for (folder in folders) fixture.panes().filter { it.field("cwd") == folder }.forEach { fixture.closePane(checkNotNull(it.field("pane_id"))) }
+        fixture.exec("rm -rf '$uploads' '$tokens' ${folders.joinToString(" ") { "'$it'" }}")
+      }
       fixture.close()
     }
   }
@@ -145,6 +169,149 @@ class ShareE2eTest {
       Espresso.pressBackUnconditionally()
       Device.waitFor("the app closed") { mainActivities().isEmpty() }
     }
+  }
+
+  @Test
+  fun taskGoesToANewAgentInTheBackground() {
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { context.container.snippets.set(listOf(Snippet("/effort max", onStart = "claude"))) }
+    val folder = hostFolder()
+    shotOnFailure(compose, "taskGoesToANewAgentInTheBackground") {
+      // A picture from another app, and a task for a new agent with it.
+      val bytes = picturePng()
+      val uri = pictureFromAnotherApp("dish-$run.png", bytes)
+      Device.shell(
+        "am start -n ${context.packageName}/${ShareActivity::class.java.name} -a android.intent.action.SEND -t image/png " +
+          "-d $uri --eu android.intent.extra.STREAM $uri --grant-read-uri-permission"
+      )
+      waitForPicking("dish-$run.png")
+      openNewAgent(folder)
+      // Without a bot in the settings the answer can't go to Telegram.
+      assertTrue(compose.onAllNodes(hasTestTag("newAgentTelegram")).fetchSemanticsNodes().isEmpty())
+      compose.onNodeWithTag("newAgentTask").performTextReplacement("Find the recipe of this dish $run")
+      Screens.take(compose, "18d-share-task")
+      compose.onNodeWithTag("startNewAgent").performClick()
+
+      // The app goes off the screen, back to where the share came from, and the rest happens in the background.
+      Device.waitFor("the app left the screen") { !context.container.servers.foreground.value }
+      assertEquals("activities of the app", 1, mainActivities().size)
+      val pane = newAgentIn(folder)
+      // Longer than Android lets an app in the background keep its network on its own.
+      Thread.sleep(8_000)
+      fixture.reportAgent(pane, "idle")
+      val shot = "$uploads/dish-$run.png"
+      val screen = fixture.waitForScreen(pane, timeoutMs = 30_000) { it.contains("Find the recipe of this dish $run") && it.contains(shot) }
+      // The start snippet first, then the task with the path of the picture.
+      assertTrue(screen, screen.indexOf("/effort max") in 0 until screen.indexOf("Find the recipe of this dish $run"))
+      assertEquals(sha256(bytes), fixture.sha256(shot))
+      assertEquals("", draftOf(pane))
+      assertTrue("the app stayed off the screen", !context.container.servers.foreground.value)
+    }
+  }
+
+  @Test
+  fun taskAsksForTheAnswerInTelegram() {
+    val token = "4242:e2e-token-$run"
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { context.container.telegram.set(TelegramBotSettings(token, "e2e_bot", 4242, "E2E")) }
+    val folder = hostFolder()
+    shotOnFailure(compose, "taskAsksForTheAnswerInTelegram") {
+      // A link from a browser, and what to do with it: the link goes with the task, after it.
+      share(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "https://example.com/recipe-$run"))
+      waitForPicking("https://example.com/recipe-$run")
+      openNewAgent(folder)
+      assertEquals("", compose.onNodeWithTag("newAgentTask").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+      compose.onNodeWithTag("newAgentTask").performTextReplacement("Summarize this page $run")
+      compose.onNodeWithTag("newAgentTelegram").performClick()
+      Screens.take(compose, "18e-share-task-telegram")
+      compose.onNodeWithTag("startNewAgent").performClick()
+
+      Device.waitFor("the app left the screen") { !context.container.servers.foreground.value }
+      val pane = newAgentIn(folder)
+      fixture.reportAgent(pane, "idle")
+      val tokenFile = "$tokens/telegram-bot-token"
+      // The agent learns where the token is, not the token itself: that waits in a file only the user may read, and goes
+      // to curl on its stdin. The terminal's echo of the pasted prompt and the fake agent's copy of it come mixed up: the
+      // copy is whole once it is all there. The prompt's long line runs over several rows, which lose the spaces they
+      // end with: the screen is read without any.
+      val send = "printf 'url = \"https://api.telegram.org/bot%s/sendMessage\"\\n' \"\$(cat $tokenFile)\" | curl -sS -K - -d chat_id=4242 --data-urlencode".bare()
+      val screen = fixture.waitForScreen(pane, timeoutMs = 30_000) { it.bare().let { rows -> rows.contains(send) && rows.contains("Summarizethispage$run") } }
+      val rows = screen.bare()
+      // The task first, then the link.
+      assertTrue(screen, rows.indexOf("Summarizethispage$run") in 0 until rows.indexOf("https://example.com/recipe-$run"))
+      assertTrue(screen, !rows.contains(token))
+      assertEquals(token, fixture.exec("cat '$tokenFile'"))
+      assertEquals("600", fixture.exec("stat -c %a '$tokenFile'").trim())
+      // The next task starts out asking for Telegram too.
+      assertTrue(context.container.telegram.answerThere.value)
+    }
+  }
+
+  @Test
+  fun taskThatDoesNotGetThroughWaitsInThePrompt() {
+    val folder = hostFolder()
+    val manager = context.getSystemService(NotificationManager::class.java)
+    shotOnFailure(compose, "taskThatDoesNotGetThroughWaitsInThePrompt") {
+      val missing = File(context.cacheDir, "нет-$run.log")
+      share(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, Uri.fromFile(missing)))
+      waitForPicking(missing.name)
+      openNewAgent(folder)
+      compose.onNodeWithTag("newAgentTask").performTextReplacement("Read the log $run")
+      compose.onNodeWithTag("startNewAgent").performClick()
+
+      // The file never gets to the host: a notification says so, and the task waits in the agent's prompt.
+      Device.waitFor("the app left the screen") { !context.container.servers.foreground.value }
+      val pane = newAgentIn(folder)
+      val tag = Alerts.tag(HostFixture.SERVER_ID, pane)
+      Device.waitFor("task notification", timeoutMs = 30_000) { manager.activeNotifications.any { it.id == Alerts.TASK_ID && it.tag == tag } }
+      val shown = manager.activeNotifications.first { it.id == Alerts.TASK_ID && it.tag == tag }
+      val said = shown.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+      assertTrue(said, said.contains(missing.name))
+      assertTrue(draftOf(pane).startsWith("Read the log $run"))
+
+      // A tap opens the agent with the task in its prompt, and the notification has done its job.
+      shown.notification.contentIntent.send()
+      fixture.reportAgent(pane, "idle")
+      waitForPrompt("Read the log $run", timeoutMs = 30_000)
+      Device.waitFor("notification taken down") { manager.activeNotifications.none { it.id == Alerts.TASK_ID && it.tag == tag } }
+    }
+  }
+
+  @Test
+  fun blankTaskShowsTheNewAgent() {
+    val folder = hostFolder()
+    shotOnFailure(compose, "blankTaskShowsTheNewAgent") {
+      // No task: the agent's screen shows, as it always did, for the user to write the prompt there.
+      val log = phoneFile("журнал-$run.log", "журнал $run")
+      share(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, Uri.fromFile(log)))
+      waitForPicking(log.name)
+      openNewAgent(folder)
+      compose.onNodeWithTag("startNewAgent").performClick()
+      compose.waitUntil(30_000) { shows(hasTestTag("quickKeys")) }
+      assertTrue(context.container.servers.foreground.value)
+      Device.waitFor("the file on the host", timeoutMs = 30_000) { fixture.exec("cat '$uploads/${log.name}' 2>/dev/null") == "журнал $run" }
+    }
+  }
+
+  /** A new folder on the host for a test's agent, as the host resolves it; it goes after the test with its panes. */
+  private fun hostFolder(): String = fixture.tempFolder("task").also { folders += it }
+
+  /** Opens the dialog for a new agent on the e2e server, for the share, with [folder] in its folder field. */
+  private fun openNewAgent(folder: String) {
+    compose.openNewAgent()
+    compose.onNodeWithTag("newAgentFolder").performTextReplacement(folder)
+  }
+
+  /** The agent the app started in [folder]: its pane, once herdr runs it. */
+  private fun newAgentIn(folder: String): String =
+    checkNotNull(fixture.waitForPanes(timeoutMs = 30_000) { panes -> panes.any { it.field("cwd") == folder && it.field("agent") == "claude" } }.first { it.field("cwd") == folder }.field("pane_id"))
+
+  /** This text without its whitespace. */
+  private fun String.bare(): String = filterNot { it.isWhitespace() }
+
+  /** The text in the prompt field of pane [paneId], whether its screen shows or not. */
+  private fun draftOf(paneId: String): String {
+    var text = ""
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { text = server.drafts.of(paneId).value.text }
+    return text
   }
 
   /**

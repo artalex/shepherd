@@ -2,10 +2,8 @@ package dev.artalex.herdr.files
 
 import android.app.Application
 import android.content.ContentResolver
-import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import dev.artalex.herdr.PromptPart
 import dev.artalex.herdr.R
@@ -22,6 +20,7 @@ import dev.artalex.herdr.core.files.RemoteFiles
 import dev.artalex.herdr.core.files.Transfer
 import dev.artalex.herdr.core.files.Transfers
 import dev.artalex.herdr.core.files.Upload
+import dev.artalex.herdr.core.files.UploadEnd
 import dev.artalex.herdr.core.files.guarded
 import dev.artalex.herdr.core.host.HerdrHost
 import dev.artalex.herdr.core.host.uploadDir
@@ -146,6 +145,9 @@ class FileTransfers(private val app: Application, private val server: Server, pr
   /** Sends the files the user picked or shared to the host, each on its own; see [Upload]. */
   fun upload(uris: List<Uri>, origin: FileOrigin?, forPane: String? = null) = transfers.upload(uris.map(Uri::toString), origin, forPane)
 
+  /** Sends shared files to the host for a prompt of the caller's own and waits for them; see [Transfers.uploadAll]. */
+  suspend fun uploadAll(uris: List<Uri>, origin: FileOrigin?, forPane: String? = null): List<UploadEnd> = transfers.uploadAll(uris.map(Uri::toString), origin, forPane)
+
   fun retry(upload: Upload) = transfers.retry(upload)
 
   fun cancel(upload: Upload) = transfers.cancel(upload)
@@ -174,7 +176,7 @@ class FileTransfers(private val app: Application, private val server: Server, pr
   /** The host's end: the connected host, waited for a while and kept up, with the app, while a transfer runs. */
   private inner class Host : HostSide {
     override suspend fun <T> withFiles(block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T {
-      if (active.getAndUpdate { it + 1 } == 0) startService()
+      if (active.getAndUpdate { it + 1 } == 0) TransferService.start(app)
       try {
         return server.connection.holding {
           val host =
@@ -184,15 +186,6 @@ class FileTransfers(private val app: Application, private val server: Server, pr
         }
       } finally {
         active.update { it - 1 }
-      }
-    }
-
-    private fun startService() {
-      try {
-        ContextCompat.startForegroundService(app, Intent(app, TransferService::class.java))
-      } catch (e: Exception) {
-        // Android refuses a foreground service started from the background; the transfer goes on without it.
-        Log.w(TAG, "cannot start the transfer service: ${e.message}")
       }
     }
   }

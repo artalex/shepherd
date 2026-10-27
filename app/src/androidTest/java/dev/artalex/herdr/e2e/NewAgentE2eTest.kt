@@ -19,9 +19,7 @@ import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
 import dev.artalex.herdr.core.model.AgentKind
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -56,7 +54,7 @@ class NewAgentE2eTest {
     fixture = HostFixture(e2e, e2e.sessionToStop)
     fixture.closeWorkspaces()
     // A folder of the test's own, as the host resolves it.
-    folder = fixture.exec("mkdir -p ~/.cache/herdr-android-e2e && cd \"$(mktemp -d ~/.cache/herdr-android-e2e/agent-XXXXX)\" && pwd -P").trim()
+    folder = fixture.tempFolder("agent")
     home = fixture.exec("cd ~ && pwd -P").trim()
     fixture.connectApp(container)
   }
@@ -69,8 +67,6 @@ class NewAgentE2eTest {
     fixture.close()
   }
 
-  private fun JsonObject.field(name: String): String? = get(name)?.jsonPrimitive?.contentOrNull
-
   /** [path], a folder in the home folder, as the folder field shows it. */
   private fun short(path: String): String = "~/" + path.removePrefix("$home/")
 
@@ -81,13 +77,6 @@ class NewAgentE2eTest {
       .fetchSemanticsNodes()
       .sortedBy { it.positionInRoot.y }
       .map { it.config[SemanticsProperties.TestTag].removePrefix("folderOption-") }
-
-  /** Opens the dialog that starts an agent on the e2e server, once it has looked up the machine's agents. */
-  private fun openNewAgent() {
-    compose.waitUntilExactlyOneExists(hasTestTag("newAgent-${HostFixture.SERVER_ID}"), 30_000)
-    compose.onNodeWithTag("newAgent-${HostFixture.SERVER_ID}").performClick()
-    compose.waitUntilExactlyOneExists(hasTestTag("newAgentKind-claude"), 10_000)
-  }
 
   /** Types and sends a prompt; a just-started agent takes a few seconds before the app lets it through. */
   private fun sendPrompt(text: String) {
@@ -103,7 +92,7 @@ class NewAgentE2eTest {
       // No pane to start an agent from; the + by the server's name starts one all the same.
       compose.waitUntilExactlyOneExists(hasText(text(R.string.agents_empty)), 30_000)
       Screens.take(compose, "17-session-empty")
-      openNewAgent()
+      compose.openNewAgent()
       // herdr would open a folder the host doesn't have as the home folder: the app looks the folder up first.
       compose.onNodeWithTag("newAgentFolder").performTextReplacement("$folder/нет")
       compose.onNodeWithTag("startNewAgent").performClick()
@@ -121,7 +110,7 @@ class NewAgentE2eTest {
 
       // The next agent from the list is offered the same folder, from the home folder, and gets a tab next to the first one.
       compose.onNodeWithContentDescription(text(R.string.agent_back)).performClick()
-      openNewAgent()
+      compose.openNewAgent()
       compose.waitUntilExactlyOneExists(hasTestTag("newAgentFolder") and hasText(short(folder)), 10_000)
       compose.onNodeWithTag("startNewAgent").performClick()
       val panes = fixture.waitForPanes(pump = { compose.waitForIdle() }) { panes -> panes.size == 2 && panes.all { it.field("agent") == "claude" } }
@@ -144,7 +133,7 @@ class NewAgentE2eTest {
     fixture.exec("rmdir -- '$gone'")
     launchApp(compose, "folderMenuOffersTheHomeFolderAndTheFoldersAgentsStartedIn") {
       compose.waitUntilExactlyOneExists(hasText(text(R.string.agents_empty)), 30_000)
-      openNewAgent()
+      compose.openNewAgent()
       // Instead of the folder that is gone, the field has the home folder: the session has no panes.
       compose.waitUntilExactlyOneExists(hasTestTag("newAgentFolder") and hasText("~"), 10_000)
       compose.onNodeWithTag("newAgentFolders", useUnmergedTree = true).performClick()
@@ -194,7 +183,7 @@ class NewAgentE2eTest {
       compose.waitUntil(10_000) { container.servers.config(HostFixture.SERVER_ID)?.folders == listOf(seen) }
       fixture.closeWorkspaces()
       compose.waitUntilExactlyOneExists(hasText(text(R.string.agents_empty)), 15_000)
-      openNewAgent()
+      compose.openNewAgent()
       compose.onNodeWithTag("newAgentFolders", useUnmergedTree = true).performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("folderOption-${short(seen)}"), 10_000)
       assertEquals(listOf("~", short(seen)), folderOptions())

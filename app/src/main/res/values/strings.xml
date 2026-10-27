@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- English is the default; values-ru has Russian, for phones set to Russian. A new string goes into both. -->
     <string name="app_name">Shepherd</string>
 
@@ -36,7 +36,7 @@
     <string name="notify_watch_off">Off</string>
     <string name="notify_watch_minutes">%1$d min</string>
     <string name="notify_channels">Events and sound</string>
-    <string name="notify_channels_hint">“Agent needs input” and “Agent finished” in Android settings</string>
+    <string name="notify_channels_hint">“Agent needs input”, “Agent finished” and “Task not given” in Android settings</string>
     <string name="notify_battery">Background work</string>
     <string name="notify_battery_unrestricted">Unrestricted: checks run on time</string>
     <string name="notify_battery_restricted">Android may put checks off for an hour or more. Tap to lift the restrictions.</string>
@@ -51,6 +51,25 @@
     <string name="watch_notification">Watching agents</string>
     <string name="watch_until">Until %1$s unless something changes</string>
     <string name="watch_stop">Stop</string>
+
+    <string name="telegram_title">Telegram</string>
+    <string name="telegram_hint">Agents can send their answers to tasks from Share here, through a bot of your own.</string>
+    <string name="telegram_connect">Connect a bot</string>
+    <string name="telegram_connected">\@%1$s · chat: %2$s</string>
+    <string name="telegram_disconnect">Disconnect</string>
+    <string name="telegram_token">Bot token</string>
+    <string name="telegram_token_hint">From @BotFather. Take a bot for Shepherd alone: Shepherd reads its messages to find your chat.</string>
+    <string name="telegram_connect_button">Connect</string>
+    <string name="telegram_checking">Checking the token…</string>
+    <string name="telegram_waiting">Send @%1$s any message: Shepherd waits for it up to 2 minutes.</string>
+    <string name="telegram_waiting_notification">Shepherd is waiting for your message to the bot</string>
+    <string name="telegram_hello">Agents\' answers from Shepherd will come here.</string>
+    <string name="telegram_bad_token">Telegram doesn\'t know this token</string>
+    <string name="telegram_busy">Another program gets this bot\'s messages: take a bot for Shepherd alone</string>
+    <string name="telegram_no_curl">The machine has no curl: install it there</string>
+    <string name="telegram_no_server">No server is connected: Shepherd reaches Telegram through one</string>
+    <string name="telegram_no_message">No message came: try again</string>
+    <string name="telegram_error">Telegram: %1$s</string>
 
     <string name="key_title">Phone key</string>
     <string name="key_missing">No key yet. Create one and add its line to ~/.ssh/authorized_keys on every server.</string>
@@ -104,6 +123,9 @@
     <string name="new_agent_forget_folder">Remove %1$s from the list</string>
     <string name="new_agent_start">Start</string>
     <string name="new_agent_starting">Starting…</string>
+    <string name="new_agent_task">Task</string>
+    <string name="new_agent_task_hint">Shepherd adds the shared text and the paths of the files. Leave it empty to open the agent instead.</string>
+    <string name="new_agent_telegram">Answer in Telegram</string>
 
     <string name="status_blocked">Needs input</string>
     <string name="status_done">Done</string>
@@ -229,4 +251,14 @@
     <string name="share_drop">Don\'t send</string>
     <string name="share_copied">Copied: paste it in the terminal</string>
     <string name="share_not_sent">%1$s wasn\'t sent: %2$s. Retry in the files window.</string>
+
+    <string name="tasks_notification">Shepherd is giving an agent its task</string>
+    <string name="alerts_channel_task">Task not given</string>
+    <string name="task_not_given_title">Task not given: %1$s</string>
+    <string name="task_not_given_text">%1$s. Tap to open the agent: the task is in its prompt.</string>
+    <string name="task_file_not_sent">%1$s wasn\'t sent: %2$s</string>
+    <string name="task_program_missing">The pane\'s shell has no %1$s</string>
+    <string name="task_not_ready">The agent wasn\'t ready within 3 minutes</string>
+    <!-- A command for the agent to run: its options keep their two hyphens. -->
+    <string name="task_telegram_note" tools:ignore="TypographyDashes">When you\'re done, send the final answer to Telegram as plain text: write it to a file and run printf \'url = \"https://api.telegram.org/bot%%s/sendMessage\"\\n\' \"$(cat %1$s)\" | curl -sS -K - -d chat_id=%2$d --data-urlencode text@&lt;file&gt;. Split an answer longer than 4000 characters into several messages. Send a file the same way, with sendDocument in place of sendMessage and -F chat_id=%2$d -F document=@&lt;file&gt; for the rest. The token goes to curl on its stdin, on no command line: don\'t print it.</string>
 </resources>
