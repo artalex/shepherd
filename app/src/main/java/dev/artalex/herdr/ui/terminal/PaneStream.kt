@@ -339,10 +339,10 @@ class PaneStream(private val server: Server, val paneId: String, private val onI
   }
 
   /** Scrolls like the desktop's mouse wheel: [lines] up into history, or down when negative. */
-  fun scroll(lines: Int) {
+  fun scroll(lines: Int, column: Int = 0, row: Int = 0) {
     val s = session ?: return
     scrolledBack = (scrolledBack + lines).coerceAtLeast(0)
-    server.scope.launch { runCatching { s.scroll(lines) } }
+    server.scope.launch { runCatching { s.scroll(lines, column, row) } }
   }
 
   /** Back to the bottom of the pane: input through the API, unlike typing into the stream, leaves the view where it is. */

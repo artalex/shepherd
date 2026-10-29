@@ -64,7 +64,7 @@ import dev.artalex.herdr.ui.common.KeyTarget
 import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.RowKey
 import dev.artalex.herdr.ui.common.rememberLinkOpener
-import dev.artalex.herdr.ui.common.rememberTerminalTypeface
+import dev.artalex.herdr.ui.common.rememberTerminalFont
 import dev.artalex.herdr.core.terminal.CloseReason
 import kotlinx.coroutines.launch
 import org.connectbot.terminal.Terminal
@@ -112,6 +112,7 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
   val resources = LocalResources.current
   val openLink = rememberLinkOpener(snackbar)
   val selection = remember { TerminalSelection() }
+  val font = rememberTerminalFont()
   LaunchedEffect(closed) { if (closed) onPaneClosed() }
   // Text a soft keyboard sends while a modifier is on in the row goes with it.
   DisposableEffect(stream) {
@@ -161,14 +162,15 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
           modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
       }
-      Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black).wheelScroll(stream, selection).testTag("terminal").onSizeChanged { terminalHeight = it.height }) {
+      Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black).wheelScroll(stream, selection, font.cellSize).testTag("terminal").onSizeChanged { terminalHeight = it.height }) {
         emulator?.let {
           // A new emulator, empty until the stream's first frame, gets a view of its own.
           key(it) {
             Terminal(
               it,
               modifier = Modifier.fillMaxSize(),
-              typeface = rememberTerminalTypeface(),
+              typeface = font.typeface,
+              initialFontSize = font.fontSize,
               keyboardEnabled = true,
               focusRequester = focus,
               onInterceptKey = viewModel::interceptKey,

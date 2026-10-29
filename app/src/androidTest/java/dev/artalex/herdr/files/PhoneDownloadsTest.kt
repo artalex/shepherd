@@ -11,19 +11,25 @@ import java.io.IOException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Before
 import org.junit.Test
 
 /**
  * Downloads saved into the emulator's MediaStore as the files window saves them: a refresh that breaks off leaves the
  * previous copy whole, one that comes through takes its place and its name. The files go into a folder of the test's
- * own, under names of this run, and are deleted afterwards.
+ * own, under names of this run, and the folder is emptied before and after each test.
  */
 class PhoneDownloadsTest {
   private val resolver = ApplicationProvider.getApplicationContext<Context>().contentResolver
   private val name = "report-${System.currentTimeMillis().toString().takeLast(6)}.txt"
 
+  /**
+   * Files of the app the folder still has before a test are left from a run cut short: an emulator killed before
+   * Android saved its last writes brings back rows of files deleted at the end of the run, files gone or not.
+   */
+  @Before
   @After
-  fun cleanUp() {
+  fun emptyFolder() {
     files().forEach { (_, uri) -> resolver.delete(uri, null, null) }
   }
 

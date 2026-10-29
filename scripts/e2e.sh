@@ -33,11 +33,17 @@ started_emulator=0
 emulator_pid=
 herdr_pids=()
 
-# Stops the emulator this script started. The next run can start the AVD only once this emulator has let go of it, and
-# one that doesn't take the console's kill within a minute is killed as a process.
+# Stops the emulator this script started. Android powers off first: the console's kill pulls the plug, and writes it
+# hasn't put on disk yet are lost. MediaStore came back with rows of files the tests had deleted, and the next run of
+# the app saw them. One that doesn't power off within a minute gets the console's kill, then is killed as a process.
+# The next run can start the AVD only once this emulator has let go of it.
 stop_emulator() {
-  timeout 20 "$ADB" emu kill >/dev/null 2>&1 || true
+  timeout 20 "$ADB" shell reboot -p >/dev/null 2>&1 || true
   for _ in $(seq 1 60); do kill -0 "$emulator_pid" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$emulator_pid" 2>/dev/null; then
+    timeout 20 "$ADB" emu kill >/dev/null 2>&1 || true
+    for _ in $(seq 1 30); do kill -0 "$emulator_pid" 2>/dev/null || break; sleep 1; done
+  fi
   kill "$emulator_pid" 2>/dev/null || true
   wait "$emulator_pid" 2>/dev/null || true
 }

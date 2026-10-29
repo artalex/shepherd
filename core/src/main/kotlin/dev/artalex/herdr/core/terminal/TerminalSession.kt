@@ -138,11 +138,18 @@ class TerminalSession(private val stream: ByteStream) {
 
   /**
    * Scrolls like the desktop's mouse wheel, [lines] up into history or, when negative, back down: herdr moves through
-   * its own scrollback, or hands the wheel to an app that asked for the mouse. Typing returns to the bottom.
+   * its own scrollback, or hands the wheel to an app that asked for the mouse at the zero-based [column] and [row].
+   * Typing returns to the bottom.
    */
-  suspend fun scroll(lines: Int) {
+  suspend fun scroll(lines: Int, column: Int = 0, row: Int = 0) {
     require(lines != 0) { "nothing to scroll" }
-    send(buildJsonObject { put("type", "terminal.scroll"); put("direction", if (lines > 0) "up" else "down"); put("lines", abs(lines)) })
+    send(buildJsonObject {
+      put("type", "terminal.scroll")
+      put("direction", if (lines > 0) "up" else "down")
+      put("lines", abs(lines))
+      put("column", column)
+      put("row", row)
+    })
   }
 
   /** Gives the terminal back; herdr then closes the stream with `detached`. */

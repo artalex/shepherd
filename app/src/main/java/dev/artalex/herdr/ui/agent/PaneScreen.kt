@@ -19,7 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
 import dev.artalex.herdr.core.store.PaneGrid
 import dev.artalex.herdr.core.terminal.CloseReason
-import dev.artalex.herdr.ui.common.rememberTerminalTypeface
+import dev.artalex.herdr.ui.common.rememberTerminalFont
 import dev.artalex.herdr.ui.terminal.PaneStream
 import dev.artalex.herdr.ui.terminal.TerminalPhase
 import dev.artalex.herdr.ui.terminal.TerminalSelection
@@ -70,17 +70,19 @@ fun NoScreen() = Text(stringResource(R.string.agent_no_screen), Modifier.padding
 @Composable
 private fun LiveTerminal(stream: PaneStream, onLink: (String) -> Unit) {
   val selection = remember { TerminalSelection() }
+  val font = rememberTerminalFont()
   val emulator by stream.emulator.collectAsStateWithLifecycle()
   val drawn by stream.drawn.collectAsStateWithLifecycle()
   // termlib draws its canvas without clipping; with the keyboard up it would cover the top bar.
-  Box(Modifier.fillMaxSize().clipToBounds().wheelScroll(stream, selection).testTag("liveScreen")) {
+  Box(Modifier.fillMaxSize().clipToBounds().wheelScroll(stream, selection, font.cellSize).testTag("liveScreen")) {
     emulator?.let {
       // A new emulator gets a view of its own.
       key(it) {
         Terminal(
           it,
           modifier = Modifier.fillMaxSize(),
-          typeface = rememberTerminalTypeface(),
+          typeface = font.typeface,
+          initialFontSize = font.fontSize,
           keyboardEnabled = false,
           onSelectionControllerAvailable = { controller -> selection.controller = controller },
           onHyperlinkClick = onLink,

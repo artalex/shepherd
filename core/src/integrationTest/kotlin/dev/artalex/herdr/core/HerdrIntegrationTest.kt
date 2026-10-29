@@ -320,6 +320,23 @@ class HerdrIntegrationTest {
   }
 
   @Test
+  fun scrollReportsPositionToMouseAwareApp(): Unit = runBlocking {
+    val (pane, terminal) = catPane("scroll-mouse", "stty -echo -icanon; printf '\\033[?1049h\\033[?1000h\\033[?1006hMOUSE_READY'; cat -v")
+    val a = control(terminal, 40, 12)
+    assertIs<TerminalEvent.Frame>(a.next())
+    waitForScreen(pane) { it.contains("MOUSE_READY") }
+
+    // herdr converts zero-based cells to the one-based SGR mouse protocol, without moving its own scrollback.
+    a.session.scroll(3, column = 12, row = 7)
+    waitForScreen(pane) { it.contains("^[[<64;13;8M") }
+    a.session.scroll(-2, column = 4, row = 9)
+    waitForScreen(pane) { it.contains("^[[<65;5;10M") }
+
+    a.session.release()
+    assertEquals(CloseReason.Detached, a.closed())
+  }
+
+  @Test
   fun agentInputLeavesViewScrolledBack() = runBlocking {
     val pane = fakeClaudePane("scroll-agent", history = "seq -f L%g 1 300")
     reportAgent(pane, "idle")
