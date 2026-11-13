@@ -7,15 +7,18 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import dev.artalex.herdr.Servers
+import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.core.notify.AgentMark
 import dev.artalex.herdr.core.notify.AgentMarks
 import dev.artalex.herdr.core.notify.agentMarks
 import dev.artalex.herdr.core.notify.notableChanges
+import dev.artalex.herdr.core.notify.seenMarks
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.ssh.SshConnection
 import dev.artalex.herdr.core.ssh.SshKeyPair
 import dev.artalex.herdr.core.ssh.discoverHerdrHost
 import dev.artalex.herdr.core.store.SessionState
+import dev.artalex.herdr.core.store.lastSnapshot
 import dev.artalex.herdr.data.BackgroundCheck
 import dev.artalex.herdr.data.KeyVault
 import dev.artalex.herdr.data.NotificationSettings
@@ -38,12 +41,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Notices agents that start waiting for an answer or finish while the app is off the screen, and shows a
- * notification for each through [Alerts].
+ * Notices agents that start waiting for an answer or finish while the user doesn't see them, and shows a notification
+ * for each through [Alerts] once the app is off the screen.
  *
- * Every snapshot of a server comes to [seen], which keeps what its agents were doing when last seen, between app
- * runs too. On screen the user sees the agents, so a snapshot only updates that and takes down notifications that no
- * longer hold. Off screen, an agent that came to a notable status since the last look shows a notification.
+ * Every snapshot of a server comes to [seen], which keeps what its agents were doing when the user last saw them,
+ * between app runs too. On screen the user sees the agents the screen on top shows ([showing]): a snapshot marks
+ * those as seen and takes down notifications that no longer hold. What the agents off it come to stays news. Off
+ * screen, an agent that came to a notable status since the user last saw it shows a notification.
  *
  * Off screen the app looks in two ways:
  * - the watch, as the app leaves the screen: the connections stay up and the sessions are polled as with the agent
@@ -67,6 +71,10 @@ class AgentWatch(
   // Main thread only, like everything here.
   private val marks = mutableMapOf<String, Map<String, AgentMark>>()
   private val seenAt = mutableMapOf<String, Long>()
+
+  /** The agents of each server's latest snapshot, for a screen that comes to show them. */
+  private val latest = mutableMapOf<String, Map<String, AgentMark>>()
+  private var inSight: Showing = Showing.NoAgents
   private val lastChange = MutableStateFlow(0L)
   private var watch: Job? = null
 
@@ -79,7 +87,16 @@ class AgentWatch(
     // Marks of a server deleted while they weren't loaded would stay forever otherwise.
     val ids = servers.configs.value.map { it.id }.toSet()
     prefs.edit { for (id in prefs.all.keys) if (id !in ids) remove(id) }
-    scope.launch { servers.foreground.drop(1).collect { onScreen -> if (onScreen) stopWatch() else startWatch() } }
+    scope.launch {
+      servers.foreground.drop(1).collect { onScreen ->
+        if (onScreen) {
+          stopWatch()
+          lookAgain()
+        } else {
+          startWatch()
+        }
+      }
+    }
     scope.launch { forgetChangedServers() }
     scope.launch { scheduleChecks() }
   }
@@ -92,20 +109,64 @@ class AgentWatch(
     val config = servers.config(serverId)?.takeIf { it.active } ?: return
     val before = marksOf(serverId)
     val after = ready.snapshot.agentMarks()
+    val previous = latest.put(serverId, after)
+    if (servers.foreground.value) {
+      // Snapshots come for more than the screen shows: the agent screen's pane switcher polls every server, and so do
+      // agents started from the phone that wait to get their snippets or task.
+      if (after != previous) alerts.dropStale(serverId, after)
+      keep(serverId, before, seenMarks(before, after) { inSight.shows(serverId, it) })
+      return
+    }
     if (after == before) return
-    if (!servers.foreground.value) {
-      lastChange.value = clock()
-      if (settings.enabled.value && alerts.allowed()) {
-        val withServer = servers.configs.value.count { it.active } > 1
-        for ((paneId, status) in notableChanges(before, after)) {
-          Log.i(TAG, "agent in pane $paneId of ${config.title} is ${status.wire} now")
-          alerts.show(config, withServer, ready.snapshot, paneId, status, ready.fetchedAtMs)
-        }
+    lastChange.value = clock()
+    val notified = mutableSetOf<String>()
+    if (settings.enabled.value && alerts.allowed()) {
+      val withServer = servers.configs.value.count { it.active } > 1
+      for ((paneId, status) in notableChanges(before, after)) {
+        Log.i(TAG, "agent in pane $paneId of ${config.title} is ${status.wire} now")
+        // A notification Android doesn't take leaves the agent's old one, which goes if it no longer holds.
+        if (alerts.show(config, withServer, ready.snapshot, paneId, status, ready.fetchedAtMs)) notified += paneId
       }
     }
-    alerts.dropStale(serverId, after)
-    marks[serverId] = after
-    prefs.edit { putString(serverId, AgentMarks.encode(after)) }
+    alerts.dropStale(serverId, after, justShown = notified)
+    keep(serverId, before, after)
+  }
+
+  /**
+   * The screen on top shows [what] of the agents: what the user sees of them from now on. It shows the latest snapshots
+   * already, and they count as seen right away.
+   */
+  fun showing(what: Showing) {
+    inSight = what
+    if (servers.foreground.value) lookAgain()
+  }
+
+  /**
+   * The agents the screen shows in the latest snapshots are seen: the screen is a new one, or the app is back on screen.
+   * Not those of a server the screens can't show now ([onDisplay]): its news stays news.
+   */
+  private fun lookAgain() {
+    for ((serverId, after) in latest) {
+      if (servers.config(serverId)?.active != true || !onDisplay(serverId)) continue
+      val before = marksOf(serverId)
+      keep(serverId, before, seenMarks(before, after) { inSight.shows(serverId, it) })
+    }
+  }
+
+  /**
+   * The screens show the agents of server [serverId] only while it is connected and polled: without a connection the
+   * agent list has the server's name and state alone, and the pane switcher leaves the server out.
+   */
+  private fun onDisplay(serverId: String): Boolean {
+    val server = servers[serverId] ?: return false
+    return server.connection.state.value is ConnectionState.Connected && server.sessions.state.value.lastSnapshot != null
+  }
+
+  /** Keeps [next] as the marks of server [serverId], between app runs too, unless they are still [before]. */
+  private fun keep(serverId: String, before: Map<String, AgentMark>?, next: Map<String, AgentMark>) {
+    if (next == before) return
+    marks[serverId] = next
+    prefs.edit { putString(serverId, AgentMarks.encode(next)) }
   }
 
   /** Ends the watch: the app is back on screen, or the user had enough. The periodic checks go on. */
@@ -118,7 +179,7 @@ class AgentWatch(
 
   /** The periodic check: one snapshot of every server that is on, over a connection of its own. */
   suspend fun check() {
-    // The agent list sees everything, and so does the watch.
+    // On screen nothing is notified: the news waits for the app to leave. The watch looks at every server itself.
     if (servers.foreground.value || watch != null) return
     if (!settings.enabled.value || !alerts.allowed()) return
     val configs = servers.configs.value.filter { it.active && it.isComplete }
@@ -222,6 +283,7 @@ class AgentWatch(
   private fun forget(serverId: String) {
     marks.remove(serverId)
     seenAt.remove(serverId)
+    latest.remove(serverId)
     prefs.edit { remove(serverId) }
     alerts.dismissServer(serverId)
   }
@@ -229,9 +291,14 @@ class AgentWatch(
   private fun marksOf(serverId: String): Map<String, AgentMark>? =
     marks[serverId] ?: AgentMarks.decode(prefs.getString(serverId, null))?.also { marks[serverId] = it }
 
-  /** The periodic check is scheduled while notifications are on and some server is on to look at. */
+  /**
+   * The periodic check is scheduled while notifications are on and Android lets them show, and some server is on to
+   * look at: without the permission a check would wake the phone only to find it may not notify. The user changes the
+   * permission in Android's settings, outside the app, so it is read again as the app comes on the screen and as it
+   * leaves: the app's own question for it doesn't take the app off the screen.
+   */
   private suspend fun scheduleChecks() {
-    combine(settings.enabled, servers.configs) { on, list -> on && list.any { it.active && it.isComplete } }
+    combine(settings.enabled, servers.configs, servers.foreground) { on, list, _ -> on && alerts.allowed() && list.any { it.active && it.isComplete } }
       .distinctUntilChanged()
       .collect { wanted -> if (wanted) CheckJobService.schedule(app) else CheckJobService.cancel(app) }
   }

@@ -8,10 +8,8 @@ import dev.artalex.herdr.core.terminal.TerminalSession
 import dev.artalex.herdr.core.terminal.terminalControlArgv
 import dev.artalex.herdr.core.transport.HerdrTransport
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 /** The shell found no herdr at [path]: `herdr status` exited with 127. */
 class HerdrNotFound(val path: String) : IOException("herdr not found at $path")
@@ -22,27 +20,30 @@ class BadSessionName(val session: String, val reason: String) : IOException("her
 /** `herdr status` printed no status; [detail] is what herdr or the shell said instead. */
 class HerdrStatusFailed(val detail: String) : IOException("herdr status failed: $detail")
 
-/** A herdr session the app talks to: [api] for requests, [openTerminal] for live terminal streams. */
-class HerdrHost(val status: HostStatus, val session: String, val transport: HerdrTransport) {
+/**
+ * A herdr session the app talks to: [api] for requests, [openTerminal] for live terminal streams. A lookup on the host
+ * gets [lookupTimeoutMs].
+ */
+class HerdrHost(val status: HostStatus, val session: String, val transport: HerdrTransport, private val lookupTimeoutMs: Long = 10_000) {
   val api = HerdrApi(transport)
 
   private val agentsLock = Mutex()
   private var agents: List<AgentKind>? = null
 
-  /** Agents herdr can start that are installed on the host; looked up once per connection. */
-  suspend fun installedAgents(): List<AgentKind> = agentsLock.withLock { agents ?: transport.installedAgents().also { agents = it } }
+  /** Agents herdr can start that are installed on the host; looked up once per connection, until a lookup succeeds. */
+  suspend fun installedAgents(): List<AgentKind> = agentsLock.withLock { agents ?: transport.installedAgents(lookupTimeoutMs).also { agents = it } }
 
   private val uploadsLock = Mutex()
   private var uploads: String? = null
 
-  /** Where files sent from the phone go; looked up once per connection. */
-  suspend fun uploadDir(): String = uploadsLock.withLock { uploads ?: transport.uploadDir().also { uploads = it } }
+  /** Where files sent from the phone go; looked up once per connection, until a lookup succeeds. */
+  suspend fun uploadDir(): String = uploadsLock.withLock { uploads ?: transport.uploadDir(lookupTimeoutMs).also { uploads = it } }
 
-  fun openTerminal(terminalId: String, cols: Int, rows: Int, takeover: Boolean): TerminalSession =
-    TerminalSession(transport.exec(terminalControlArgv(status.client.binary, session, terminalId, cols, rows, takeover)))
+  suspend fun openTerminal(terminalId: String, cols: Int, rows: Int, takeover: Boolean): TerminalSession =
+    TerminalSession(transport.openTerminal(terminalControlArgv(status.client.binary, session, terminalId, cols, rows, takeover)))
 
-  /** Files on the host, over a channel of their own. Blocking: not on the main thread. */
-  fun openFiles(): RemoteFiles = transport.openFiles()
+  /** Files on the host, over a channel of their own. */
+  suspend fun openFiles(): RemoteFiles = transport.openFiles()
 }
 
 /**
@@ -51,7 +52,7 @@ class HerdrHost(val status: HostStatus, val session: String, val transport: Herd
  */
 suspend fun HerdrTransport.uploadDir(timeoutMs: Long = 10_000): String {
   val script = "d=$(xdg-user-dir DOWNLOAD 2>/dev/null); if [ -z \"${'$'}d\" ] || [ \"${'$'}d\" = \"${'$'}HOME\" ]; then d=\"${'$'}HOME/Downloads\"; fi; printf '%s/herdr-android' \"${'$'}d\""
-  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-c", script)) }
+  val stream = exec(listOf("sh", "-c", script))
   val out = blockingIoWithDeadline(stream, timeoutMs, "downloads folder lookup") { stream.input.readAllBytes() }
   return out.toString(Charsets.UTF_8).trim().also { if (!it.startsWith("/")) throw IOException("downloads folder lookup printed '$it'") }
 }
@@ -63,7 +64,7 @@ suspend fun HerdrTransport.uploadDir(timeoutMs: Long = 10_000): String {
  */
 suspend fun HerdrTransport.resolveFolder(path: String, timeoutMs: Long = 10_000): String? {
   val script = "d=${'$'}1; case ${'$'}d in \"~\") d=${'$'}HOME ;; \"~/\"*) d=${'$'}HOME/${'$'}{d#\"~/\"} ;; esac; cd -- \"${'$'}d\" 2>/dev/null && pwd -P"
-  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-c", script, "sh", path)) }
+  val stream = exec(listOf("sh", "-c", script, "sh", path))
   val (out, exitStatus) = blockingIoWithDeadline(stream, timeoutMs, "folder lookup") { stream.input.readAllBytes() to stream.exitStatus() }
   return out.toString(Charsets.UTF_8).removeSuffix("\n").takeIf { exitStatus == 0 && it.startsWith("/") }
 }
@@ -79,7 +80,7 @@ suspend fun HerdrTransport.checkFolders(folders: List<String>, timeoutMs: Long =
   // A NUL after each folder: a name may hold any other character. A folder one can enter is a directory with x; test
   // is built in, where a cd would take a subshell for each of what may be many folders.
   val script = "h=${'$'}(cd -- \"${'$'}HOME\" 2>/dev/null && pwd -P) || exit 1; printf '%s\\0' \"${'$'}h\"; for d; do [ -d \"${'$'}d\" ] && [ -x \"${'$'}d\" ] && printf '%s\\0' \"${'$'}d\"; done; exit 0"
-  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-c", script, "sh") + folders) }
+  val stream = exec(listOf("sh", "-c", script, "sh") + folders)
   val (out, exitStatus) = blockingIoWithDeadline(stream, timeoutMs, "folder check") { stream.input.readAllBytes() to stream.exitStatus() }
   val names = out.toString(Charsets.UTF_8).split('\u0000').dropLast(1)
   val home = names.firstOrNull()?.takeIf { exitStatus == 0 && it.startsWith("/") } ?: throw IOException("folder check failed, exit status ${exitStatus ?: "unknown"}")
@@ -93,7 +94,7 @@ suspend fun HerdrTransport.checkFolders(folders: List<String>, timeoutMs: Long =
 suspend fun HerdrTransport.installedAgents(timeoutMs: Long = 10_000): List<AgentKind> {
   val names = AgentKind.entries.joinToString(" ") { it.executable }
   val script = "for x in $names; do command -v \"${'$'}x\" >/dev/null 2>&1 && echo \"${'$'}x\"; done"
-  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-lc", script)) }
+  val stream = exec(listOf("sh", "-lc", script))
   val out = blockingIoWithDeadline(stream, timeoutMs, "agent lookup") { stream.input.readAllBytes() }
   return parseInstalledAgents(out.toString(Charsets.UTF_8))
 }
@@ -106,7 +107,7 @@ fun parseInstalledAgents(output: String): List<AgentKind> {
 
 /** Runs `herdr --session <session> status --json` on the host through [HerdrTransport.exec]. */
 suspend fun HerdrTransport.readHostStatus(herdrPath: String, session: String, timeoutMs: Long = 10_000): HostStatus {
-  val process = withContext(Dispatchers.IO) { exec(listOf(herdrPath, "--session", session, "status", "--json")) }
+  val process = exec(listOf(herdrPath, "--session", session, "status", "--json"))
   val (out, exitStatus) = blockingIoWithDeadline(process, timeoutMs, "herdr status") { process.input.readAllBytes() to process.exitStatus() }
   return hostStatusOf(herdrPath, session, out.toString(Charsets.UTF_8), process.stderr, exitStatus)
 }

@@ -2,7 +2,9 @@ package dev.artalex.herdr.e2e
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.job.JobScheduler
 import android.content.Intent
+import android.os.Process
 import android.service.notification.StatusBarNotification
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
@@ -16,6 +18,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.AppContainer
@@ -43,7 +46,9 @@ import org.junit.Test
 
 /**
  * Notifications against real herdr: the app leaves the screen, a fake agent of the e2e session changes its status,
- * and the notification comes from the watch or from the periodic check, the screen locked or not.
+ * and the notification comes from the watch or from the periodic check, the screen locked or not. What the screen
+ * showed is no news; what it didn't show comes once the app leaves. Whatever brings the app back, a notification or
+ * the launcher icon, comes to its one activity.
  */
 @OptIn(ExperimentalTestApi::class)
 class NotificationsE2eTest {
@@ -74,17 +79,19 @@ class NotificationsE2eTest {
       container.watch.stopWatch()
       container.notifications.setEnabled(false)
     }
+    // The activities a test started as the launcher or a notification does: no ActivityScenario closes them.
+    finishMainActivities()
     manager.cancelAll()
     if (::fixture.isInitialized) fixture.close()
   }
 
-  private fun alert(): StatusBarNotification? =
-    manager.activeNotifications.firstOrNull { it.id == Alerts.ALERT_ID && it.tag == Alerts.tag(HostFixture.SERVER_ID, agent) }
+  private fun alert(pane: String = agent): StatusBarNotification? =
+    manager.activeNotifications.firstOrNull { it.id == Alerts.ALERT_ID && it.tag == Alerts.tag(HostFixture.SERVER_ID, pane) }
 
-  /** Waits for the agent's notification in [channel]. */
-  private fun waitForAlert(channel: String): StatusBarNotification {
-    waitFor("notification in $channel") { alert()?.notification?.channelId == channel }
-    return checkNotNull(alert())
+  /** Waits for the notification of the agent in [pane] in [channel]. */
+  private fun waitForAlert(channel: String, pane: String = agent): StatusBarNotification {
+    waitFor("notification of $pane in $channel") { alert(pane)?.notification?.channelId == channel }
+    return checkNotNull(alert(pane))
   }
 
   /** The agent list has seen the agent: what it showed then isn't news for the notifications. */
@@ -93,9 +100,9 @@ class NotificationsE2eTest {
     compose.waitUntilExactlyOneExists(hasTestTag(paneTag(agent)), 10_000)
   }
 
-  /** The agent's status as the app last saw it, and as herdr has it now. */
-  private fun appStatus(): AgentStatus? =
-    (container.servers[HostFixture.SERVER_ID]?.sessions?.state?.value as? SessionState.Ready)?.snapshot?.agents?.firstOrNull { it.paneId == agent }?.agentStatus
+  /** The status of the agent in [pane] as the app last saw it, and as herdr has it now. */
+  private fun appStatus(pane: String = agent): AgentStatus? =
+    (container.servers[HostFixture.SERVER_ID]?.sessions?.state?.value as? SessionState.Ready)?.snapshot?.agents?.firstOrNull { it.paneId == pane }?.agentStatus
 
   private fun hostStatus(): String? =
     fixture.raw("session.snapshot").getValue("snapshot").jsonObject.getValue("agents").jsonArray
@@ -110,10 +117,46 @@ class NotificationsE2eTest {
     shell("cmd jobscheduler run -f ${context.packageName} ${CheckJobService.JOB_ID}")
   }
 
-  /** Brings the app back as its launcher icon would, without opening an agent. */
-  private fun backToApp() {
-    context.startActivity(MainActivity.intent(context))
-    waitFor("app on screen") { container.servers.foreground.value }
+  /** The periodic check is scheduled with Android. */
+  private fun checkScheduled(): Boolean = context.getSystemService(JobScheduler::class.java).getPendingJob(CheckJobService.JOB_ID) != null
+
+  /**
+   * Takes the permission to notify away, as the user does in Android's settings. Android kills the app then, and the
+   * test with it, as the test runs in the app's process; this way of Android's own tests leaves the process alone.
+   */
+  private fun revokeNotifications() {
+    val ui = InstrumentationRegistry.getInstrumentation().uiAutomation
+    ui.adoptShellPermissionIdentity("android.permission.REVOKE_POST_NOTIFICATIONS_WITHOUT_KILL", "android.permission.REVOKE_RUNTIME_PERMISSIONS")
+    try {
+      // Not in the SDK: a test API of Android's, which instrumented tests may call.
+      val permissions = Class.forName("android.permission.PermissionManager")
+      // The user's number, as Android numbers the apps' uids by user.
+      permissions
+        .getMethod("revokePostNotificationPermissionWithoutKillForTest", String::class.java, Int::class.javaPrimitiveType)
+        .invoke(context.getSystemService(permissions), context.packageName, Process.myUid() / 100_000)
+    } finally {
+      ui.dropShellPermissionIdentity()
+    }
+    waitFor("notifications not allowed") { !manager.areNotificationsEnabled() }
+  }
+
+  private fun grantNotifications() {
+    InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
+    waitFor("notifications allowed") { manager.areNotificationsEnabled() }
+  }
+
+  /** Brings the app back as its launcher icon does, without opening an agent. */
+  private fun backToApp() = Device.tapLauncherIcon(container)
+
+  /** The watch's own notification, while it shows. */
+  private fun watching(): StatusBarNotification? = manager.activeNotifications.firstOrNull { it.notification.channelId == "watch" }
+
+  /** The app has one main activity, as alive in its process and as recorded in Android's tasks. */
+  private fun assertOneActivity() {
+    compose.waitForIdle()
+    assertEquals("main activities alive", 1, mainActivities().size)
+    val records = mainActivityRecords()
+    assertEquals("main activity records in the tasks: $records", 1, records.size)
   }
 
   private fun watchServiceRunning() = shell("dumpsys activity services ${context.packageName}/dev.artalex.herdr.notify.WatchService").contains("ServiceRecord")
@@ -166,8 +209,8 @@ class NotificationsE2eTest {
       waitForAgentOnList()
       goHome(container)
       waitFor("watch on") { container.watch.until.value != null }
-      waitFor("watch service notification") { manager.activeNotifications.any { it.notification.channelId == "watch" } }
-      val watching = manager.activeNotifications.first { it.notification.channelId == "watch" }
+      waitFor("watch service notification") { watching() != null }
+      val watching = checkNotNull(watching())
       assertEquals(text(R.string.watch_stop), watching.notification.actions.single().title.toString())
       watching.notification.actions.single().actionIntent.send()
       waitFor("watch over") { container.watch.until.value == null }
@@ -211,6 +254,61 @@ class NotificationsE2eTest {
       backToApp()
       fixture.reportAgent(agent, "working")
       waitFor("stale notification taken down") { alert() == null }
+    }
+  }
+
+  @Test
+  fun questionOfAnAgentOffTheScreenComesOnceTheAppLeaves() {
+    val other = fixture.workspace("e2e-notify-other-$run")
+    fixture.fakeClaude(other, "working")
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { container.notifications.setWatchMinutes(5) }
+    try {
+      launchApp(compose, "questionOfAnAgentOffTheScreenComesOnceTheAppLeaves") {
+        // The list has both agents at work, scrolled to either: it shows every agent of the server. The user opens one.
+        // Scrolled down to it, not back up: a row at the top of the list is under its server's name, which takes the tap.
+        waitForAgentOnList()
+        compose.onNodeWithTag(paneTag(agent)).performClick()
+        compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 15_000)
+        // Both ask. The pane switcher keeps the server polled, and the app has both questions, but the screen shows its
+        // own agent's alone: the other's is news the user hasn't seen.
+        fixture.reportAgent(agent, "blocked")
+        fixture.reportAgent(other, "blocked")
+        waitFor("the app sees both questions") { appStatus(agent) == AgentStatus.BLOCKED && appStatus(other) == AgentStatus.BLOCKED }
+        Thread.sleep(2_500) // a poll more
+        assertNull("no notification while the app is on screen", alert(other))
+        goHome(container)
+        waitForAlert(Alerts.BLOCKED_CHANNEL, other)
+        // The question on the screen was seen; its notification would have come with the other one.
+        Thread.sleep(1_000)
+        assertNull("the question the screen showed", alert(agent))
+      }
+    } finally {
+      // No questions left for the tests after: a workspace with one goes to the top of the list, and their panes lower.
+      // A failure of its own would hide the test's.
+      runCatching { fixture.reportAgent(agent, "working") }
+      runCatching { fixture.reportAgent(other, "working") }
+    }
+  }
+
+  @Test
+  fun checkIsScheduledOnlyWhileNotificationsMayShow() {
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { container.notifications.setWatchMinutes(0) }
+    launchApp(compose, "checkIsScheduledOnlyWhileNotificationsMayShow") {
+      waitForAgentOnList()
+      waitFor("check scheduled") { checkScheduled() }
+      // The user takes the permission away in Android's settings, and comes back: a check would wake the phone every
+      // 15 minutes only to find it may not notify.
+      goHome(container)
+      revokeNotifications()
+      try {
+        backToApp()
+        waitFor("check no longer scheduled") { !checkScheduled() }
+      } finally {
+        grantNotifications()
+      }
+      // Allowed again while the app is on screen, as from the app's own question: the check comes as the app leaves.
+      goHome(container)
+      waitFor("check scheduled again") { checkScheduled() }
     }
   }
 
@@ -274,6 +372,51 @@ class NotificationsE2eTest {
         assertTrue("the list should stay", compose.onAllNodes(hasTestTag("quickKeys")).fetchSemanticsNodes().isEmpty())
         // The notification itself still opens the agent.
         context.startActivity(fromNotification)
+        compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 15_000)
+      }
+    }
+  }
+
+  @Test
+  fun launcherIconComesToTheActivityANotificationStarted() {
+    shotOnFailure(compose, "launcherIconComesToTheActivityANotificationStarted") {
+      // With no activity of the app, a tapped notification begins its task.
+      finishMainActivities()
+      context.startActivity(Alerts.intentFor(context, HostFixture.SERVER_ID, agent))
+      compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 15_000)
+      goHome(container)
+      // The launcher icon brings that activity back as the user left it rather than putting another one over it.
+      Device.tapLauncherIcon(container)
+      assertOneActivity()
+      compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 15_000)
+      // Back on the last screen leaves the app as Home does: the activity stays, and the icon brings it back.
+      Espresso.pressBack()
+      waitForAgentOnList()
+      Espresso.pressBackUnconditionally()
+      waitFor("app in background") { !container.servers.foreground.value }
+      assertEquals("main activities alive", 1, mainActivities().size)
+      Device.tapLauncherIcon(container)
+      waitForAgentOnList()
+      assertOneActivity()
+    }
+  }
+
+  @Test
+  fun watchNotificationComesBackToTheActivity() {
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { container.notifications.setWatchMinutes(5) }
+    shotOnFailure(compose, "watchNotificationComesBackToTheActivity") {
+      finishMainActivities()
+      Device.tapLauncherIcon(container)
+      compose.scrollListTo(paneTag(agent))
+      compose.onNodeWithTag(paneTag(agent)).performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 15_000)
+      // A tap on the watch's notification brings the activity back as the user left it, each time the watch comes.
+      repeat(2) {
+        goHome(container)
+        waitFor("watch notification") { watching() != null }
+        checkNotNull(watching()).notification.contentIntent.send()
+        waitFor("app on screen") { container.servers.foreground.value }
+        assertOneActivity()
         compose.waitUntilExactlyOneExists(hasTestTag("quickKeys"), 15_000)
       }
     }

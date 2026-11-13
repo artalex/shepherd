@@ -7,11 +7,10 @@ import dev.artalex.herdr.core.model.ReadSource
 import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.proto.readNdjsonLine
 import dev.artalex.herdr.core.proto.writeNdjsonLine
+import dev.artalex.herdr.core.terminal.textForPrograms
 import dev.artalex.herdr.core.transport.HerdrTransport
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.JsonElement
@@ -62,11 +61,15 @@ class HerdrApi(private val transport: HerdrTransport, private val timeoutMs: Lon
     })
   }
 
-  /** Submits a prompt; fails with [ApiError] `agent_blocked` while the agent shows a dialog. */
+  /**
+   * Submits a prompt: herdr pastes the text, in one bracketed paste for an agent that asked for one, and presses Enter
+   * after it. The text goes as [textForPrograms] makes it: herdr pastes it as it is, and the end of a paste in it would
+   * let the rest through as keys. Fails with [ApiError] `agent_blocked` while the agent shows a dialog.
+   */
   suspend fun promptAgent(target: String, text: String) {
     call("agent.prompt", buildJsonObject {
       put("target", target)
-      put("text", text)
+      put("text", textForPrograms(text))
     })
   }
 
@@ -129,7 +132,7 @@ class HerdrApi(private val transport: HerdrTransport, private val timeoutMs: Lon
       put("method", method)
       put("params", params)
     }
-    val stream = withContext(Dispatchers.IO) { transport.openApi() }
+    val stream = transport.openApi()
     val line = blockingIoWithDeadline(stream, timeoutMs, method) {
       stream.output.writeNdjsonLine(request.toString())
       stream.input.buffered().readNdjsonLine() ?: throw IOException("$method: connection closed without an answer")

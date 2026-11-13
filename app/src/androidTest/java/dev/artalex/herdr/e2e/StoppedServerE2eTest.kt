@@ -1,8 +1,11 @@
 package dev.artalex.herdr.e2e
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
@@ -17,7 +20,13 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import dev.artalex.herdr.HerdrApp
 import dev.artalex.herdr.R
+import dev.artalex.herdr.Server
+import dev.artalex.herdr.ui.terminal.PaneStream
+import dev.artalex.herdr.ui.terminal.TerminalPhase
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -26,9 +35,9 @@ import org.junit.Test
 /**
  * A herdr server that stops and comes back, as after `herdr server stop` on the host. The list says the server isn't
  * running, whether it stopped before the app connected or under a live connection, and shows the session again once
- * the server is back; a prompt sent meanwhile stays in its field, and terminal input says it went nowhere. A pane opened
- * again while the server is away shows no old picture of it. The tests stop a session of their own: the other tests'
- * servers stay up.
+ * the server is back; a prompt sent meanwhile stays in its field, and terminal input says it went nowhere. An open agent
+ * screen says the connection is gone over its last frame, its agent's status out of date. A pane opened again while the
+ * server is away shows no old picture of it. The tests stop a session of their own: the other tests' servers stay up.
  */
 @OptIn(ExperimentalTestApi::class)
 class StoppedServerE2eTest {
@@ -141,6 +150,57 @@ class StoppedServerE2eTest {
         fixture.startServer()
       }
     }
+  }
+
+  /**
+   * The herdr server stops under an open agent screen: the screen says why over the pane's last frame, and the agent's
+   * status shows as out of date, where both passed for live. Once the server is back, the screen is live again and the
+   * status fresh.
+   */
+  @Test
+  fun lostConnectionIsShownOnTheAgentScreen() {
+    fixture.fakeClaude(pane, "working")
+    val server = fixture.connectApp(container)
+    launchApp(compose, "lostConnectionIsShownOnTheAgentScreen") {
+      compose.scrollListTo(paneTag(pane))
+      compose.onNodeWithTag(paneTag(pane)).performClick()
+      compose.waitUntilExactlyOneExists(hasTestTag("liveScreen"), 15_000)
+      // A frame of the pane on the phone: the picture that would pass for the pane as it is.
+      val frame = "frame-" + System.currentTimeMillis().toString().takeLast(5)
+      fixture.raw("pane.send_input", buildJsonObject { put("pane_id", pane); put("text", frame) })
+      fixture.waitForScreen(pane, pump = { compose.waitForIdle() }) { it.contains(frame) }
+      compose.waitUntil(10_000) { streamOf(server).drawn.value }
+      val working = hasTestTag("agentStatus") and hasText(text(R.string.status_working))
+      compose.waitUntilExactlyOneExists(working and fresh, 10_000)
+      compose.onNodeWithTag("screenNotice").assertDoesNotExist()
+      try {
+        fixture.stopServer()
+        // Why, over the whole screen: the last frame stays under it, dimmed. The status is out of date.
+        compose.waitUntilExactlyOneExists(hasTestTag("screenNotice") and hasText(text(R.string.problem_herdr_not_running), substring = true), 30_000)
+        assertEquals(compose.onNodeWithTag("screen").fetchSemanticsNode().boundsInRoot, compose.onNodeWithTag("screenNotice").fetchSemanticsNode().boundsInRoot)
+        assertTrue(streamOf(server).drawn.value)
+        compose.onNode(working).assert(hasStateDescription(text(R.string.status_stale)))
+        Screens.take(compose, "16c-agent-connection-lost")
+      } finally {
+        fixture.startServer()
+      }
+      // Back: the screen is live again. The agent went with its server; one started anew has a fresh status.
+      compose.waitUntil(60_000) { compose.onAllNodes(hasTestTag("screenNotice")).fetchSemanticsNodes().isEmpty() }
+      compose.waitUntil(15_000) { streamOf(server).phase.value == TerminalPhase.Live }
+      fixture.fakeClaude(pane, "idle")
+      compose.waitUntilExactlyOneExists(hasTestTag("agentStatus") and hasText(text(R.string.status_idle)) and fresh, 30_000)
+      Screens.take(compose, "16d-agent-connection-back")
+    }
+  }
+
+  /** A status chip that isn't marked out of date. */
+  private val fresh = SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription)
+
+  /** The stream of the test's pane on the phone; the streams are the main thread's. */
+  private fun streamOf(server: Server): PaneStream {
+    lateinit var stream: PaneStream
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { stream = server.streams.of(pane) }
+    return stream
   }
 
   @Test

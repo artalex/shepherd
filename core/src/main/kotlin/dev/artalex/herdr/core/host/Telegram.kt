@@ -3,8 +3,6 @@ package dev.artalex.herdr.core.host
 import dev.artalex.herdr.core.rpc.blockingIoWithDeadline
 import dev.artalex.herdr.core.transport.HerdrTransport
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -67,7 +65,7 @@ class TelegramBotApi(private val transport: HerdrTransport, private val token: S
   }
 
   private suspend fun call(method: String, params: Map<String, String> = emptyMap(), timeoutMs: Long = CALL_TIMEOUT_MS): JsonElement {
-    val stream = withContext(Dispatchers.IO) { transport.exec(listOf(curl, "-sS", "--max-time", "${timeoutMs / 1000}", "-K", "-")) }
+    val stream = transport.exec(listOf(curl, "-sS", "--max-time", "${timeoutMs / 1000}", "-K", "-"))
     val (out, exitStatus) =
       blockingIoWithDeadline(stream, timeoutMs + DEADLINE_SLACK_MS, "Telegram $method") {
         // The end of stdin ends curl's config.
@@ -98,7 +96,7 @@ suspend fun HerdrTransport.saveTelegramToken(token: String, dir: String? = null,
   val script =
     "$TOKEN_FILE; umask 077; " +
       "mkdir -p -- \"${'$'}d\" && rm -f -- \"${'$'}f.part\" && cat > \"${'$'}f.part\" && mv -f -- \"${'$'}f.part\" \"${'$'}f\" && printf '%s' \"${'$'}f\""
-  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-c", script, "sh") + listOfNotNull(dir)) }
+  val stream = exec(listOf("sh", "-c", script, "sh") + listOfNotNull(dir))
   val (out, exitStatus) =
     blockingIoWithDeadline(stream, timeoutMs, "saving the Telegram token") {
       stream.output.use { it.write(token.toByteArray()) }
@@ -110,7 +108,7 @@ suspend fun HerdrTransport.saveTelegramToken(token: String, dir: String? = null,
 
 /** Takes the token [saveTelegramToken] put in [dir] off the host: the bot is no longer the user's way to get answers. */
 suspend fun HerdrTransport.removeTelegramToken(dir: String? = null, timeoutMs: Long = 10_000) {
-  val stream = withContext(Dispatchers.IO) { exec(listOf("sh", "-c", "$TOKEN_FILE; rm -f -- \"${'$'}f\" \"${'$'}f.part\"", "sh") + listOfNotNull(dir)) }
+  val stream = exec(listOf("sh", "-c", "$TOKEN_FILE; rm -f -- \"${'$'}f\" \"${'$'}f.part\"", "sh") + listOfNotNull(dir))
   val exitStatus =
     blockingIoWithDeadline(stream, timeoutMs, "removing the Telegram token") {
       stream.input.readAllBytes()

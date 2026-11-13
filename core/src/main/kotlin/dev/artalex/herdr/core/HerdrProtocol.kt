@@ -1,9 +1,11 @@
 package dev.artalex.herdr.core
 
-/** herdr socket API generation the client is written against (`ping` → `protocol`). */
-const val SUPPORTED_PROTOCOL = 22
-
-/** Oldest herdr release the client supports. */
+/**
+ * Oldest herdr release the client supports: the one whose API methods it calls and whose answers it reads. That is all
+ * it asks of a newer herdr, as herdr's socket API docs tell clients: fields it doesn't know are ignored, and a method
+ * that herdr no longer has fails as an error like any other. The `protocol` number herdr reports belongs to its private
+ * protocol between CLI and server, not to the API (see [dev.artalex.herdr.core.host.check]).
+ */
 const val MIN_HERDR_VERSION = "0.9.5"
 
 /** herdr's own name for the session that runs without `--session`. */

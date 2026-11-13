@@ -1,7 +1,5 @@
 package dev.artalex.herdr.ui.settings
 
-import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -106,7 +104,7 @@ internal fun NotificationSection(viewModel: SettingsViewModel) {
   ListItem(
     headlineContent = { Text(stringResource(R.string.notify_battery)) },
     supportingContent = { Text(stringResource(if (unrestricted) R.string.notify_battery_unrestricted else R.string.notify_battery_restricted)) },
-    modifier = Modifier.clickable { openBatterySettings(context, unrestricted) }.testTag("battery"),
+    modifier = Modifier.clickable { openBatterySettings(context) }.testTag("battery"),
   )
   Text(
     lastCheckText(context, lastCheck),
@@ -126,17 +124,9 @@ private fun lastCheckText(context: Context, check: BackgroundCheck?): String {
 private fun batteryUnrestricted(context: Context): Boolean = context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
 
 /**
- * Limited, the app asks to lift the limits: one dialog of Android's. Unlimited, it opens the app's page in the
- * system settings, where the limits come back on.
+ * The app's page in the system settings: its battery setting lifts Android's limits on background work and brings
+ * them back. The app doesn't ask to lift them in a dialog of Android's: Google Play restricts the permission for it.
  */
-@SuppressLint("BatteryLife") // the app isn't on Google Play, which restricts asking
-private fun openBatterySettings(context: Context, unrestricted: Boolean) {
-  val app = Uri.fromParts("package", context.packageName, null)
-  val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, app)
-  val page = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, app)
-  try {
-    context.startActivity(if (unrestricted) page else ask)
-  } catch (e: ActivityNotFoundException) {
-    context.startActivity(page)
-  }
+private fun openBatterySettings(context: Context) {
+  context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
 }

@@ -1,6 +1,5 @@
 package dev.artalex.herdr.e2e
 
-import android.app.Activity
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.ClipboardManager
@@ -12,8 +11,10 @@ import android.provider.MediaStore
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -22,10 +23,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
-import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
-import androidx.test.runner.lifecycle.Stage
 import dev.artalex.herdr.HerdrApp
-import dev.artalex.herdr.MainActivity
 import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.ShareActivity
@@ -68,7 +66,7 @@ class ShareE2eTest {
   @Before
   fun seed() {
     // The shares start the app themselves: no activity of an earlier test to come to instead.
-    finishActivities()
+    finishMainActivities()
     val e2e = E2eArgs.require()
     fixture = HostFixture(e2e)
     home = fixture.exec("printf %s \"\$HOME\"")
@@ -81,7 +79,7 @@ class ShareE2eTest {
 
   @After
   fun cleanUp() {
-    finishActivities()
+    finishMainActivities()
     if (::server.isInitialized) server.files.uploadDirOverride = null
     InstrumentationRegistry.getInstrumentation().runOnMainSync {
       context.container.snippets.set(snippets)
@@ -159,15 +157,63 @@ class ShareE2eTest {
       compose.waitUntil(30_000) { clipboard() == "cat $uploads/заметка-$run.txt" }
       compose.waitUntil(10_000) { shows(hasText(text(R.string.share_copied))) }
 
-      // The cross drops a share: the list is the usual one again, and Back from it leaves the app.
+      // The cross drops a share: the list is the usual one again.
       share(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "не нужно $run"))
       waitForPicking("не нужно $run")
       compose.onNodeWithTag("dropShare").performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("openSettings"), 10_000)
       assertTrue(compose.onAllNodes(hasText(text(R.string.share_title))).fetchSemanticsNodes().isEmpty())
+
+      // Back from the list leaves the app, and a share that waits there goes too. The app's activity stays: the launcher
+      // icon brings it back with the usual list.
+      share(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "не сейчас $run"))
+      waitForPicking("не сейчас $run")
       Espresso.closeSoftKeyboard()
       Espresso.pressBackUnconditionally()
-      Device.waitFor("the app closed") { mainActivities().isEmpty() }
+      Device.waitFor("the app left the screen") { !context.container.servers.foreground.value }
+      assertEquals("activities of the app", 1, mainActivities().size)
+      Device.tapLauncherIcon(context.container)
+      compose.waitUntilExactlyOneExists(hasTestTag("openSettings"), 10_000)
+      assertTrue(compose.onAllNodes(hasText(text(R.string.share_title))).fetchSemanticsNodes().isEmpty())
+      assertEquals("activities of the app", 1, mainActivities().size)
+    }
+  }
+
+  /**
+   * Shared text reaches the agent as text alone, whatever it has in it: here the end of a bracketed paste with Shift+Tab
+   * after it, Ctrl+C, a Windows line end and the end of a paste in C1. The agent gets one paste of the text, then Enter.
+   */
+  @Test
+  fun sharedTextReachesTheAgentAsTextAlone() {
+    val agent = fixture.workspace("e2e-share-text-$run")
+    fixture.fakeClaude(agent, "idle")
+    shotOnFailure(compose, "sharedTextReachesTheAgentAsTextAlone") {
+      share(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "look at this\u001b[201~\u001b[Z and\u0003 that\r\nfrom $run\u009b201~"))
+      waitForPicking("look at this")
+      pick(agent)
+      waitForPrompt("from $run")
+      compose.waitUntilExactlyOneExists(hasTestTag("sendPrompt") and isEnabled(), 10_000)
+      compose.onNodeWithTag("sendPrompt").performClick()
+      val screen = fixture.waitForScreen(agent, pump = { compose.waitForIdle() }) { s -> s.lines().map { it.trim() }.any { it.startsWith("from $run") && it.endsWith("^[[201~") } }
+      assertTrue(screen, screen.lines().map { it.trim() }.windowed(2).contains(listOf("^[[200~look at this[201~[Z and that", "from ${run}201~ ^[[201~")))
+    }
+  }
+
+  /**
+   * Shared text of control characters alone leaves nothing for the agent: the prompt has nothing to send. Sent, it would
+   * be the space after the shared text and Enter, which would send whatever the agent's own field holds.
+   */
+  @Test
+  fun sharedControlCharactersAloneLeaveNothingToSend() {
+    val agent = fixture.workspace("e2e-share-controls-$run")
+    fixture.fakeClaude(agent, "idle")
+    val shared = "\u001b\u0003\u0007"
+    shotOnFailure(compose, "sharedControlCharactersAloneLeaveNothingToSend") {
+      share(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shared))
+      waitForPicking(shared)
+      pick(agent)
+      compose.waitUntil(15_000) { draftOf(agent).startsWith(shared) }
+      compose.onNodeWithTag("sendPrompt").assertIsNotEnabled()
     }
   }
 
@@ -371,22 +417,5 @@ class ShareE2eTest {
     picture = uri
     Device.shell("content write --uri $uri", stdin = bytes)
     return uri
-  }
-
-  /** The app's main activities alive now, in any stage. */
-  private fun mainActivities(): List<Activity> {
-    var found = emptyList<Activity>()
-    InstrumentationRegistry.getInstrumentation().runOnMainSync {
-      val monitor = ActivityLifecycleMonitorRegistry.getInstance()
-      found = Stage.entries.filter { it != Stage.DESTROYED }.flatMap { monitor.getActivitiesInStage(it) }.filterIsInstance<MainActivity>()
-    }
-    return found
-  }
-
-  /** Closes the app's main activities, as ActivityScenario closes the one it starts. */
-  private fun finishActivities() {
-    val open = mainActivities()
-    InstrumentationRegistry.getInstrumentation().runOnMainSync { open.forEach { it.finish() } }
-    Device.waitFor("activities closed") { mainActivities().isEmpty() }
   }
 }

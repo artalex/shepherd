@@ -91,6 +91,7 @@ import dev.artalex.herdr.core.model.PaneInfo
 import dev.artalex.herdr.core.snippets.Snippet
 import dev.artalex.herdr.core.store.Board
 import dev.artalex.herdr.core.store.promptPath
+import dev.artalex.herdr.core.terminal.blankForPrograms
 import dev.artalex.herdr.ui.agents.paneSubtitle
 import dev.artalex.herdr.ui.agents.paneTitle
 import dev.artalex.herdr.ui.common.KeyModifiers
@@ -144,6 +145,7 @@ fun AgentScreen(
   onPaneClosed: () -> Unit,
 ) {
   val view by viewModel.pane.collectAsStateWithLifecycle()
+  val notice by viewModel.notice.collectAsStateWithLifecycle()
   val board by viewModel.board.collectAsStateWithLifecycle()
   val switcher by viewModel.switcher.collectAsStateWithLifecycle()
   val serverTitle by viewModel.serverTitle.collectAsStateWithLifecycle()
@@ -228,6 +230,7 @@ fun AgentScreen(
           PaneSwitcher(
             current = viewModel.server.id to viewModel.paneId,
             pane = pane,
+            stale = view?.stale == true,
             serverTitle = serverTitle,
             boards = switcher,
             onPick = { serverId, paneId -> if (serverId to paneId != viewModel.server.id to viewModel.paneId) onSwitchPane(serverId, paneId) },
@@ -271,6 +274,8 @@ fun AgentScreen(
           if (pane == null || grid == null) NoScreen()
           else PaneScreen(viewModel, grid, onLink = openLink)
         }
+        // Over the screen, which shows dimmed under it, when that may not be the pane as it is now.
+        notice?.let { ScreenNoticeOverlay(it) }
         // Over the bottom of the snapshot: above the keyboard it would hide the prompt and the keys it asks to answer
         // with. Dark like the rest of the app, where Material's inverse colours would be a light box.
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter)) {
@@ -464,12 +469,14 @@ private fun MissingProgramDialog(program: String, onCopy: () -> Unit, onDismiss:
 
 /**
  * The pane's status and title, and under it [serverTitle] if there is one; tapping it lists every pane to switch to.
- * With more than one server on, their panes come under the servers' names.
+ * With more than one server on, their panes come under the servers' names. [stale]: the status is as an earlier
+ * snapshot had it.
  */
 @Composable
 private fun PaneSwitcher(
   current: Pair<String, String>,
   pane: PaneInfo?,
+  stale: Boolean,
   serverTitle: String?,
   boards: List<ServerBoard>,
   onPick: (serverId: String, paneId: String) -> Unit,
@@ -478,7 +485,7 @@ private fun PaneSwitcher(
   Box {
     Column(Modifier.clickable(enabled = boards.isNotEmpty()) { open = true }.testTag("paneSwitcher")) {
       Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (pane?.agent != null) StatusChip(pane.agentStatus, Modifier.testTag("agentStatus"))
+        if (pane?.agent != null) StatusChip(pane.agentStatus, Modifier.testTag("agentStatus"), stale = stale)
         Text(pane?.let(::paneTitle) ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Icon(Icons.Filled.ArrowDropDown, contentDescription = stringResource(R.string.agent_switch))
       }
@@ -670,7 +677,8 @@ private fun PromptRow(
           // After the field: the keys it took are its own.
           .onKeyEvent { it.type == KeyEventType.KeyDown && onKey(it.nativeKeyEvent) },
     )
-    IconButton(onClick = onSend, enabled = value.text.isNotBlank() && !starting && !sending, modifier = Modifier.testTag("sendPrompt")) {
+    // Text that leaves the agent nothing, such as control characters alone, has nothing to send.
+    IconButton(onClick = onSend, enabled = !blankForPrograms(value.text) && !starting && !sending, modifier = Modifier.testTag("sendPrompt")) {
       Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.agent_send))
     }
   }

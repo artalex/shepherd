@@ -3,7 +3,6 @@ package dev.artalex.herdr.ui.terminal
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -63,6 +62,7 @@ import dev.artalex.herdr.ui.common.KeyRow
 import dev.artalex.herdr.ui.common.KeyTarget
 import dev.artalex.herdr.ui.common.ModKey
 import dev.artalex.herdr.ui.common.RowKey
+import dev.artalex.herdr.ui.common.ScreenOverlay
 import dev.artalex.herdr.ui.common.rememberLinkOpener
 import dev.artalex.herdr.ui.common.rememberTerminalFont
 import dev.artalex.herdr.core.terminal.CloseReason
@@ -203,29 +203,37 @@ fun TerminalScreen(viewModel: TerminalViewModel, title: String, onBack: () -> Un
 
 @Composable
 private fun PhaseOverlay(phase: TerminalPhase, onReconnect: () -> Unit, onTakeOver: () -> Unit) {
-  val (text, action) =
-    when (phase) {
-      TerminalPhase.Measuring, TerminalPhase.Live, TerminalPhase.NeedsTakeover -> return
-      TerminalPhase.Connecting -> stringResource(R.string.terminal_connecting) to null
-      is TerminalPhase.Failed -> stringResource(R.string.terminal_failed, phase.message) to (R.string.terminal_reconnect to onReconnect)
-      is TerminalPhase.Closed ->
-        when (phase.reason) {
-          CloseReason.TakenOver -> stringResource(R.string.terminal_taken_over) to (R.string.terminal_take_back to onTakeOver)
-          CloseReason.NotFound -> stringResource(R.string.terminal_not_found) to null
-          CloseReason.ServerUpdating -> stringResource(R.string.terminal_server_updating) to (R.string.terminal_reconnect to onReconnect)
-          CloseReason.Detached -> stringResource(R.string.terminal_detached) to (R.string.terminal_reconnect to onReconnect)
-          else -> stringResource(R.string.terminal_ended) to (R.string.terminal_reconnect to onReconnect)
-        }
+  val text = phaseText(phase) ?: return
+  val action =
+    when {
+      phase == TerminalPhase.Closed(CloseReason.TakenOver) -> R.string.terminal_take_back to onTakeOver
+      phase is TerminalPhase.Failed || phase is TerminalPhase.Closed && phase.reason != CloseReason.NotFound -> R.string.terminal_reconnect to onReconnect
+      else -> null
     }
-  Column(
-    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)).padding(24.dp).testTag("terminalOverlay"),
-    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-    horizontalAlignment = Alignment.CenterHorizontally,
-  ) {
-    Text(text, color = Color.White)
+  ScreenOverlay(text, Modifier.testTag("terminalOverlay")) {
     action?.let { (label, onClick) -> Button(onClick = onClick) { Text(stringResource(label)) } }
   }
 }
+
+/**
+ * What the screens of a pane say of its stream that isn't live: opening, failed or ended. Null while it is live, before
+ * it opens, and while it waits for a takeover, which each screen handles its own way.
+ */
+@Composable
+fun phaseText(phase: TerminalPhase): String? =
+  when (phase) {
+    TerminalPhase.Measuring, TerminalPhase.Live, TerminalPhase.NeedsTakeover -> null
+    TerminalPhase.Connecting -> stringResource(R.string.terminal_connecting)
+    is TerminalPhase.Failed -> stringResource(R.string.terminal_failed, phase.message)
+    is TerminalPhase.Closed ->
+      when (phase.reason) {
+        CloseReason.TakenOver -> stringResource(R.string.terminal_taken_over)
+        CloseReason.NotFound -> stringResource(R.string.terminal_not_found)
+        CloseReason.ServerUpdating -> stringResource(R.string.terminal_server_updating)
+        CloseReason.Detached -> stringResource(R.string.terminal_detached)
+        else -> stringResource(R.string.terminal_ended)
+      }
+  }
 
 /**
  * The extra keys, F1–F12 behind Fn; they and the paste button wait for a [live] stream, while Ctrl, Alt and Shift, in

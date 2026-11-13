@@ -77,7 +77,8 @@ class WatchService : Service() {
   }
 
   private fun notification(until: Long?): Notification {
-    val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)
+    // A tap brings back the app's activity as it was; a new one starts only if there is none.
+    val open = PendingIntent.getActivity(this, 0, MainActivity.intent(this), PendingIntent.FLAG_IMMUTABLE)
     val stop = PendingIntent.getService(this, 0, Intent(this, WatchService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
     return NotificationCompat.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.ic_notification)

@@ -155,23 +155,31 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
   }
 
   /**
-   * Turns [paneId] into a Claude agent herdr recognizes: a line echo started as argv0 `claude`
-   * (herdr checks the foreground process before accepting agent.send_keys), in [state].
+   * Turns [paneId] into a Claude agent herdr recognizes, in [state]: fake_agent.py of the test assets, started as argv0
+   * `claude` (herdr checks the foreground process before accepting agent.send_keys). It takes its input as Claude Code
+   * and Codex do, raw and with bracketed paste on, and shows what it gets as `cat -vT` would: a prompt as one paste,
+   * `^[[200~…^[[201~` on lines of its own, then Enter as a new line.
    */
   fun fakeClaude(paneId: String, state: String) {
-    val script = exec("mkdir -p ~/.cache/herdr-android-e2e && cat > ~/.cache/herdr-android-e2e/echo.py && echo ~/.cache/herdr-android-e2e/echo.py", ECHO_PY).trim()
-    type(paneId, "(exec -a claude python3 -u $script)")
-    Thread.sleep(800)
+    fakeAgent(paneId, "claude")
     reportAgent(paneId, state)
   }
 
   /**
-   * Turns [paneId] into agent [agent] in [state] that asked for the kitty keyboard protocol, as Claude Code does; see
-   * [kittyCat].
+   * Turns [paneId] into agent [agent] in [state], as [fakeClaude] does, with the kitty keyboard protocol on too, by
+   * Claude Code's flags, which take the shifted key along: herdr then sends keys with their modifiers, Ctrl+Enter as
+   * `ESC[13;5u`, Ctrl+Shift+C as `ESC[99:67;6u`, and the pane shows such a key as `^[[13;5u`.
    */
   fun fakeKittyAgent(paneId: String, state: String, agent: String = "claude") {
-    kittyCat(paneId, agent)
+    fakeAgent(paneId, agent, "--kitty")
     reportAgent(paneId, state, agent)
+  }
+
+  /** Starts fake_agent.py with [options] in [paneId] as argv0 [argv0]; see [fakeClaude]. */
+  private fun fakeAgent(paneId: String, argv0: String, vararg options: String) {
+    val script = exec("mkdir -p ~/.cache/herdr-android-e2e && cat > ~/.cache/herdr-android-e2e/fake_agent.py && echo ~/.cache/herdr-android-e2e/fake_agent.py", FAKE_AGENT).trim()
+    type(paneId, (listOf("(exec -a $argv0 python3 -u $script") + options).joinToString(" ") + ")")
+    Thread.sleep(800)
   }
 
   /**
@@ -286,7 +294,9 @@ class HostFixture(private val e2e: E2eArgs, val session: String = e2e.session) :
 
     /** Rows to columns of a pane with no desktop attached: herdr's default headless size. */
     val DESKTOP_SIZE = 40 to 120
-    private const val ECHO_PY = "import sys\nfor line in sys.stdin:\n    sys.stdout.write(line)\n    sys.stdout.flush()\n"
+
+    /** The fake agent of [fakeClaude], from the test assets. */
+    private val FAKE_AGENT by lazy { InstrumentationRegistry.getInstrumentation().context.assets.open("fake_agent.py").use { it.readBytes().decodeToString() } }
   }
 }
 

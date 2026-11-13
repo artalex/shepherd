@@ -1,16 +1,20 @@
 package dev.artalex.herdr
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import dev.artalex.herdr.notify.Showing
 import dev.artalex.herdr.ui.agent.AgentScreen
 import dev.artalex.herdr.ui.agent.AgentViewModel
 import dev.artalex.herdr.ui.agents.AgentsScreen
@@ -35,8 +39,15 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
   // A set-up app opens on the agent list; the first start goes to the form for a server.
   val backStack = rememberNavBackStack(if (servers.isEmpty()) ServerEditor(null) else Agents)
   val activity = LocalActivity.current
-  // The last screen closes the app instead of leaving NavDisplay with an empty back stack.
-  val back: () -> Unit = { if (backStack.size > 1) backStack.removeLastOrNull() else activity?.finish() }
+  // Back from the last screen leaves the app as Home does: the activity stays in its task, which goes behind the others,
+  // and comes back as it was. A share waiting for its agent goes. NavDisplay takes Back only while there is a screen to
+  // go back to, and Android would close an activity that the launcher didn't start.
+  val leave: () -> Unit = {
+    if (currentShare.value != null) onShared()
+    activity?.moveTaskToBack(true)
+  }
+  val back: () -> Unit = { if (backStack.size > 1) backStack.removeLastOrNull() else leave() }
+  BackHandler(enabled = backStack.size == 1, onBack = leave)
   val toAgents: () -> Unit = {
     backStack.clear()
     backStack.add(Agents)
@@ -47,6 +58,14 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
   val forgetPane: (String, String) -> Unit = { serverId, paneId ->
     backStack.removeAll { (it is Agent && it.serverId == serverId && it.paneId == paneId) || (it is Terminal && it.serverId == serverId && it.paneId == paneId) }
     if (backStack.isEmpty()) backStack.add(Agents)
+  }
+  // The notifications take what the screen on top shows of the agents as seen; the rest stays news for when the app
+  // leaves the screen. Only here is it known which screen that is: the screens' polling outlives them and reaches
+  // further than they show.
+  val top = backStack.lastOrNull()
+  DisposableEffect(top) {
+    container.watch.showing(showingOf(top))
+    onDispose { container.watch.showing(Showing.NoAgents) }
   }
   LaunchedEffect(opening) {
     if (opening != null) {
@@ -135,3 +154,11 @@ fun MainNavigation(opening: Agent?, onOpened: () -> Unit, share: Share?, shareCo
       },
   )
 }
+
+/** What the screen of [key] shows of the agents. A terminal shows the program in its pane, not its status. */
+private fun showingOf(key: NavKey?): Showing =
+  when (key) {
+    Agents -> Showing.AllAgents
+    is Agent -> Showing.OneAgent(key.serverId, key.paneId)
+    else -> Showing.NoAgents
+  }

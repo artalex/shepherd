@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -9,19 +8,15 @@
     <!-- File transfers go on in the background in a foreground service. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- A downloaded APK opens in the package installer: a new build of the app updates itself. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Notifications about agents. After the app leaves the screen, a foreground service with a wake lock watches
          them for a few minutes; then a periodic job checks, kept across reboots. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- The settings ask to lift battery limits in one dialog: a dozing phone defers the checks for an hour and more.
-         Google Play restricts this permission; the app isn't published there. -->
-    <uses-permission
-        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
-        tools:ignore="BatteryLife" />
+    <!-- Not asked for, as Google Play restricts both: REQUEST_INSTALL_PACKAGES, so a downloaded APK is installed from
+         the phone's downloads and not from the app, and REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, so the limits on
+         background work are lifted in the app's page of the system settings and not in a dialog of the app's. -->
 
     <application
         android:name=".HerdrApp"
@@ -32,9 +27,13 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Herdr">
+        <!-- The app's one activity, at the root of the app's own task: the launcher icon, the notifications and the
+             shares come to it there (onNewIntent) instead of starting another one over it, and whatever the app has
+             opened over it in its task goes. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|uiMode|fontScale|locale|layoutDirection"
             android:windowSoftInputMode="adjustResize">
             <!-- Compose handles configuration changes itself; without recreation the live terminal

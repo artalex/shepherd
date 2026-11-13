@@ -15,6 +15,7 @@ import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.files.FileShelf
 import dev.artalex.herdr.core.files.FoundFile
 import dev.artalex.herdr.core.files.HostSide
+import dev.artalex.herdr.core.files.NoConnection
 import dev.artalex.herdr.core.files.PhoneSide
 import dev.artalex.herdr.core.files.RemoteFiles
 import dev.artalex.herdr.core.files.Transfer
@@ -42,15 +43,16 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** A downloaded file to show: [uri] on the phone, opened as [type]. */
-data class Opening(val uri: Uri, val type: String, val name: String)
+data class Opening(val uri: Uri, val type: String, val name: String) {
+  /** An APK: it isn't opened, the files window says where it is instead. */
+  val isPackage: Boolean get() = type == "application/vnd.android.package-archive"
+}
 
 /**
  * Files between the phone and the server's host, for the files window of the agent screen: the server's lists
@@ -116,7 +118,7 @@ class FileTransfers(private val app: Application, private val server: Server, pr
         }
         try {
           val screen = host.api.readPane(paneId, ansi = false).text
-          val files = withContext(Dispatchers.IO) { host.openFiles() }
+          val files = host.openFiles()
           files.guarded("checking the paths on the screen", graceMs = 0) { shelf.scan(screen, width, cwd, files, origin) }
         } catch (e: CancellationException) {
           throw e
@@ -133,7 +135,7 @@ class FileTransfers(private val app: Application, private val server: Server, pr
   /** Adds the file at a path typed in the files window of the pane of [origin]; null without a connection. */
   suspend fun add(text: String, cwd: String?, origin: FileOrigin?): AddResult? {
     val host = server.host ?: return null
-    val files = withContext(Dispatchers.IO) { host.openFiles() }
+    val files = host.openFiles()
     return files.guarded("adding $text", graceMs = 0) { shelf.add(text, cwd, files, origin) }
   }
 
@@ -173,20 +175,27 @@ class FileTransfers(private val app: Application, private val server: Server, pr
     }
   }
 
-  /** The host's end: the connected host, waited for a while and kept up, with the app, while a transfer runs. */
+  /**
+   * The host's end: the connected host, waited for a while. A transfer keeps the connection up, and the app with it, from
+   * the start, its wait for its turn too: until the last one ends, a gap between two would let them go.
+   */
   private inner class Host : HostSide {
-    override suspend fun <T> withFiles(block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T {
+    override suspend fun <T> whileTransferring(block: suspend () -> T): T {
       if (active.getAndUpdate { it + 1 } == 0) TransferService.start(app)
       try {
-        return server.connection.holding {
-          val host =
-            withTimeoutOrNull(CONNECT_WAIT_MS) { server.connection.state.mapNotNull { (it as? ConnectionState.Connected)?.host }.first() }
-              ?: throw IOException("no connection to the host")
-          withContext(Dispatchers.IO) { host.openFiles() }.use { files -> block(files) { uploadDirOverride ?: host.uploadDir() } }
-        }
+        return server.connection.holding(block)
       } finally {
         active.update { it - 1 }
       }
+    }
+
+    override suspend fun awaitConnection() {
+      withTimeoutOrNull(CONNECT_WAIT_MS) { server.connection.state.first { it is ConnectionState.Connected } } ?: throw NoConnection()
+    }
+
+    override suspend fun <T> withFiles(block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T {
+      val host = server.host ?: throw NoConnection()
+      return host.openFiles().use { files -> block(files) { uploadDirOverride ?: host.uploadDir() } }
     }
   }
 

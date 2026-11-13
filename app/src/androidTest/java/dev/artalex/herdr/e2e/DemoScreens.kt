@@ -50,7 +50,8 @@ import org.junit.Test
  * download and to send, and a notification. The agents are demo_agent.py drawing what such an agent shows, in projects
  * that live in ~/projects on the host for the run. The status bar is Android's demo one.
  *
- * Only scripts/screenshots.sh runs it (it sets `demoScreens`); the e2e run skips it.
+ * Only scripts/screenshots.sh runs it (it sets `demoScreens`): scripts/e2e.sh leaves it out of other runs, and
+ * without `demoScreens` it skips itself.
  */
 @OptIn(ExperimentalTestApi::class)
 class DemoScreens {

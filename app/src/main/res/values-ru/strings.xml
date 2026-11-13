@@ -39,7 +39,7 @@
     <string name="notify_channels_hint">«Агент ждёт ответа», «Агент закончил» и «Задание не дошло» в настройках Android</string>
     <string name="notify_battery">Работа в фоне</string>
     <string name="notify_battery_unrestricted">Без ограничений: проверки идут вовремя</string>
-    <string name="notify_battery_restricted">Android может откладывать проверки на час и больше. Нажмите, чтобы снять ограничения.</string>
+    <string name="notify_battery_restricted">Android может откладывать проверки на час и больше. Нажмите, чтобы открыть настройки приложения: в разделе о батарее выберите режим без ограничений.</string>
     <string name="notify_last_check">Последняя проверка в фоне: %1$s. Ответило серверов: %2$d из %3$d.</string>
     <string name="notify_no_check">Проверок в фоне ещё не было.</string>
 
@@ -79,6 +79,8 @@
     <string name="key_share">Поделиться</string>
     <string name="key_copied">Ключ скопирован</string>
     <string name="key_fingerprint">Отпечаток: %1$s</string>
+    <string name="privacy_policy">Политика конфиденциальности</string>
+    <string name="privacy_policy_url">https://github.com/artalex/shepherd/blob/main/PRIVACY.ru.md</string>
 
     <string name="state_no_key">Нет ключа телефона: создайте его в настройках.</string>
     <string name="state_disconnected">Не подключено.</string>
@@ -95,7 +97,6 @@
     <string name="problem_bad_session">Имя сессии «%1$s» не подходит herdr: %2$s</string>
     <string name="problem_herdr_not_running">Сервер herdr не запущен для этой сессии.</string>
     <string name="problem_herdr_too_old">herdr %1$s слишком старый, нужен 0.9.5 или новее.</string>
-    <string name="problem_wrong_protocol">Неизвестная версия протокола herdr: %1$s.</string>
     <string name="problem_other">Ошибка: %1$s</string>
 
     <string name="host_key_title">Новый сервер «%1$s»</string>
@@ -132,6 +133,7 @@
     <string name="status_working">Работает</string>
     <string name="status_idle">Свободен</string>
     <string name="status_unknown">Неизвестно</string>
+    <string name="status_stale">Статус мог устареть</string>
 
     <string name="agent_back">Назад</string>
     <string name="agent_prompt_hint">Промпт агенту</string>
@@ -158,6 +160,7 @@
     <string name="agent_missing_copied">Настройка скопирована</string>
     <string name="agent_missing_ok">Понятно</string>
     <string name="agent_no_screen">Жду экран панели…</string>
+    <string name="agent_stale">Экран мог устареть: %1$s</string>
     <string name="error_agent_blocked">Агент ждёт ответа в диалоге — ответьте кнопками.</string>
     <string name="error_agent_not_ready">Агент уже не запущен в этой панели.</string>
     <string name="agent_starting">Агент запускается…</string>
@@ -228,9 +231,12 @@
     <string name="files_path_failed">Не удалось проверить путь: %1$s</string>
     <string name="files_no_connection">Нет связи с хостом</string>
     <string name="files_no_viewer">Нечем открыть %1$s</string>
+    <string name="files_apk_saved">APK лежит в загрузках телефона, в папке «%1$s». Установите его оттуда.</string>
+    <string name="files_show_downloads">Загрузки</string>
     <string name="files_send">Отправить файлы</string>
     <string name="files_outgoing_empty">Здесь появятся файлы, отправленные с телефона на хост. Тап по файлу вставляет его путь в промпт.</string>
     <string name="files_uploading">отправляется %1$d %%</string>
+    <string name="files_queued">в очереди</string>
     <string name="files_upload_failed">не отправлен: %1$s</string>
     <string name="files_retry">Повторить</string>
     <string name="files_dismiss">Убрать</string>

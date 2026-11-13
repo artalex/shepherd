@@ -39,6 +39,22 @@ fun notableChanges(before: Map<String, AgentMark>?, after: Map<String, AgentMark
   }
 }
 
+/**
+ * The marks after a look at [after] that showed the user only the agents [shown] picks, by pane id: those take their
+ * new marks, and the others keep the ones they had, so what they came to meanwhile is still news, for a notification
+ * once the app leaves the screen. An agent gone from [after] goes. A first look ([before] is null) takes in every
+ * agent: there is nothing yet to tell news from, as [notableChanges] has it.
+ */
+fun seenMarks(before: Map<String, AgentMark>?, after: Map<String, AgentMark>, shown: (paneId: String) -> Boolean): Map<String, AgentMark> {
+  if (before == null) return after
+  return buildMap {
+    for ((pane, mark) in after) {
+      val kept = if (shown(pane)) mark else before[pane]
+      if (kept != null) put(pane, kept)
+    }
+  }
+}
+
 /** Marks as the phone keeps them between app runs. */
 object AgentMarks {
   private val json = Json { ignoreUnknownKeys = true }

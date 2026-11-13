@@ -20,7 +20,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Runs blocking I/O on [resource] with a deadline, and closes [resource] when done.
  *
  * Both the deadline and caller cancellation are enforced by closing [resource], which makes the
- * blocked read fail. The thread is never interrupted: an interrupt inside JSch can cut an SSH packet
+ * blocked read fail, or end: a block the deadline ended is a [HerdrTimeoutException], whatever it read
+ * up to then. The thread is never interrupted: an interrupt inside JSch can cut an SSH packet
  * in half, and the server then drops the whole session ("message authentication code incorrect").
  */
 internal suspend fun <T> blockingIoWithDeadline(resource: Closeable, timeoutMs: Long, what: String, block: () -> T): T =
@@ -55,16 +56,20 @@ internal suspend fun <T> blockingIoWhileProgressing(resource: Closeable, stallMs
         resource.close()
       }
     }
-    try {
-      withContext(Dispatchers.IO) { block { lastProgress.set(System.nanoTime()) } }
-    } catch (e: IOException) {
-      if (timedOut.get()) throw HerdrTimeoutException(timeout())
-      // Closed because the caller was cancelled: report the cancellation, not the closed stream.
-      coroutineContext.ensureActive()
-      throw e
-    } finally {
-      done.complete(Unit)
-      watchdog.cancel()
-      closer.cancel()
-    }
+    val result =
+      try {
+        withContext(Dispatchers.IO) { block { lastProgress.set(System.nanoTime()) } }
+      } catch (e: IOException) {
+        if (timedOut.get()) throw HerdrTimeoutException(timeout())
+        // Closed because the caller was cancelled: report the cancellation, not the closed stream.
+        coroutineContext.ensureActive()
+        throw e
+      } finally {
+        done.complete(Unit)
+        watchdog.cancel()
+        closer.cancel()
+      }
+    // The close ended a read that waited, as a pipe ends it rather than fail it: what came up to then is no whole answer.
+    if (timedOut.get()) throw HerdrTimeoutException(timeout())
+    result
   }

@@ -14,6 +14,12 @@ if [ "${1:-}" = "--release" ]; then
   build=release
   shift
 fi
+# DemoScreens stages the scene of scripts/screenshots.sh, which asks for it with demoScreens. Other runs leave it out:
+# skipped, it counted as a failure in the XML of every run.
+case " $* " in
+  *.demoScreens=*) ;;
+  *) set -- -Pandroid.testInstrumentationRunnerArguments.notClass=dev.artalex.herdr.e2e.DemoScreens "$@" ;;
+esac
 
 SDK="${ANDROID_HOME:-$HOME/Android/Sdk}"
 ADB="$SDK/platform-tools/adb"

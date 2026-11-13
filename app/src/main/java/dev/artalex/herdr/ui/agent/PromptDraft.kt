@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import dev.artalex.herdr.core.terminal.blankForPrograms
 
 /**
  * The prompt of an agent screen. Sent text leaves the field at once, for the next prompt, and is kept here until herdr
@@ -21,9 +22,12 @@ class PromptDraft {
   val sending: Boolean
     get() = pending != null
 
-  /** The field's text to send, which empties the field; null if it is blank or another text is on its way. */
+  /**
+   * The field's text to send, which empties the field; null if another text is on its way, or if the text leaves the
+   * agent nothing ([blankForPrograms]), as when it is blank or only control characters: such text stays in the field.
+   */
   fun take(): String? {
-    if (sending || value.text.isBlank()) return null
+    if (sending || blankForPrograms(value.text)) return null
     val text = value.text
     pending = text
     value = TextFieldValue()

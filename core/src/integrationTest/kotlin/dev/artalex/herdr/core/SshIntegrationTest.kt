@@ -69,7 +69,8 @@ class SshIntegrationTest {
 
   @BeforeAll
   fun setUp() {
-    assumeTrue(HerdrTestServer.available && keyFile.canRead(), "herdr or the SSH test key is missing")
+    HerdrTestServer.assumeAvailable()
+    assumeTrue(keyFile.canRead(), "the SSH test key is missing")
     server = HerdrTestServer(isolatedConfig = false)
     key = SshKeyPair(keyFile.readBytes(), File("${keyFile.path}.pub").readText().trim())
     hostKey = assertIs<SshFailure.UnknownHostKey>(assertFailsWith<SshFailure> { SshConnection(target, key, null).connect() }).presented
@@ -115,7 +116,7 @@ class SshIntegrationTest {
       val host = discoverHerdrHost(connection, "~/.local/bin/herdr", server.session)
       assertEquals(HostCheck.Ok, host.status.check())
       assertEquals(server.socket, host.status.server.socket)
-      assertEquals(SUPPORTED_PROTOCOL, host.api.ping().protocol)
+      assertEquals(host.status.server.protocol, host.api.ping().protocol)
       host.api.snapshot()
       Unit
     }
@@ -143,7 +144,7 @@ class SshIntegrationTest {
         }
       }
       assertTrue(connection.isConnected, "SSH session died under parallel and cancelled requests")
-      assertEquals(SUPPORTED_PROTOCOL, host.api.ping().protocol)
+      assertEquals(host.status.server.protocol, host.api.ping().protocol)
     }
   }
 
@@ -153,7 +154,7 @@ class SshIntegrationTest {
     try {
       File(dir, "отчёт.txt").writeText("привет")
       connected().use { connection ->
-        connection.openFiles().use { files ->
+        connection.sftp().use { files ->
           assertEquals(System.getProperty("user.home"), files.home)
           val report = checkNotNull(files.stat("$dir/отчёт.txt"))
           assertTrue(report.isFile)
@@ -192,16 +193,34 @@ class SshIntegrationTest {
     val dir = Files.createTempDirectory(Path.of(System.getenv("XDG_RUNTIME_DIR") ?: "/tmp"), "hsftp").toFile()
     try {
       connected().use { connection ->
-        // Each over a channel of its own, as the app sends the files picked together; sshd allows 10 per connection.
-        val count = 8
+        // Each over a channel of its own, and more of them than the connection has room for at once: the rest wait.
+        val count = 12
         val paths =
           (1..count)
-            .map { i -> async(Dispatchers.IO) { connection.openFiles().use { it.upload("файл $i".byteInputStream(), dir.path, "фото.png") { true } } } }
+            .map { i -> async(Dispatchers.IO) { connection.sftp().use { it.upload("файл $i".byteInputStream(), dir.path, "фото.png") { true } } } }
             .awaitAll()
         assertEquals(count, paths.toSet().size, "uploads took one name: $paths")
         assertEquals((1..count).map { "файл $it" }.toSet(), paths.map { File(it).readText() }.toSet())
         // Nothing else is left, not even the parts.
         assertEquals(paths.map { it.substringAfterLast('/') }.sorted(), dir.list()!!.sorted())
+      }
+    } finally {
+      dir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun uploadsAtOnceIntoAFolderNotThereYetAllGetThere() = runBlocking {
+    // As the first files sent to a host: its uploads folder isn't there yet, and each upload makes it on its way.
+    val dir = Files.createTempDirectory(Path.of(System.getenv("XDG_RUNTIME_DIR") ?: "/tmp"), "hsftp").toFile()
+    try {
+      connected().use { connection ->
+        repeat(5) { round ->
+          val folder = "${dir.path}/new $round/herdr-android"
+          val ends = (1..6).map { i -> async(Dispatchers.IO) { runCatching { connection.sftp().use { it.upload("файл $i".byteInputStream(), folder, "фото $i.png") { true } } } } }.awaitAll()
+          assertEquals(emptyList(), ends.mapNotNull { it.exceptionOrNull()?.message }, "round $round")
+          assertEquals((1..6).map { "фото $it.png" }, File(folder).list()!!.sorted())
+        }
       }
     } finally {
       dir.deleteRecursively()

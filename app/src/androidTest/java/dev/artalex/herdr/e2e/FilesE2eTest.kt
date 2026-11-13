@@ -1,7 +1,9 @@
 package dev.artalex.herdr.e2e
 
 import android.app.Activity
+import android.app.DownloadManager
 import android.app.Instrumentation
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -37,10 +39,11 @@ import org.junit.Test
 
 /**
  * The files window of the agent screen against real herdr and sshd: paths on the screen are looked up over SFTP,
- * a tap downloads a file into the app's folder in Download and opens it, a path not found shows once and is checked quietly
- * afterwards, and files picked on the phone land on the host with their path going into the prompt. What the host
- * doesn't have goes last. The window lists the files of its pane or of the pane's whole workspace. The activities the
- * app starts (a viewer, the document picker) are intercepted.
+ * a tap downloads a file into the app's folder in Download and opens it, or leaves an APK there to install, a path not
+ * found shows once and is checked quietly afterwards, and files picked on the phone land on the host with their path
+ * going into the prompt. What the host doesn't have goes last. The window lists the files of its pane or of the pane's
+ * whole workspace. The activities the app starts (a viewer, the phone's downloads, the document picker) are
+ * intercepted.
  */
 @OptIn(ExperimentalTestApi::class)
 class FilesE2eTest {
@@ -162,6 +165,7 @@ class FilesE2eTest {
     val pane = fixture.workspace("e2e-files-$run")
     fixture.type(pane, "cd ~/.cache/herdr-android-e2e/$dirName && clear")
     val views = intercept(Intent.ACTION_VIEW, Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null))
+    val downloadLists = intercept(DownloadManager.ACTION_VIEW_DOWNLOADS, Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null))
 
     launchApp(compose, "pathsOnTheScreenDownloadAndOpen") {
       openPane(pane)
@@ -192,12 +196,15 @@ class FilesE2eTest {
       assertArrayEquals(shotBytes, resolver.openInputStream(uri)!!.use { it.readBytes() })
       compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("found-$shot") and hasText("· " + text(R.string.files_downloaded), substring = true)).fetchSemanticsNodes().isNotEmpty() }
 
-      // An APK opens in the package installer.
+      // An APK is downloaded and not opened: the window says where it is and offers the phone's downloads.
       scrollTo("found-$apk")
       compose.onNodeWithTag("found-$apk").performClick()
-      compose.waitUntil(15_000) { views.size == 2 }
-      assertEquals("application/vnd.android.package-archive", views[1].type)
-      downloaded += checkNotNull(views[1].data)
+      compose.waitUntilExactlyOneExists(hasText(text(R.string.files_apk_saved, text(R.string.app_name))), 15_000)
+      downloaded += Uri.parse(checkNotNull(server.files.shelf.book.value.found.single { it.path == apk }.copy).uri)
+      Screens.take(compose, "12h-files-apk")
+      compose.onNode(hasText(text(R.string.files_show_downloads))).performClick()
+      compose.waitUntil(10_000) { downloadLists.isNotEmpty() }
+      assertEquals("no viewer is asked for an APK", 1, views.size)
 
       // A path with spaces isn't found on the screen; typed by hand it joins the list.
       compose.onNodeWithTag("pathField").performTextInput(spaced)
@@ -307,6 +314,39 @@ class FilesE2eTest {
       }
     } finally {
       photo.delete()
+    }
+  }
+
+  @Test
+  fun manyFilesPickedAtOnceAllGoToTheHost() {
+    val pane = fixture.workspace("e2e-many-$run")
+    fixture.fakeClaude(pane, "idle")
+    val context = ApplicationProvider.getApplicationContext<HerdrApp>()
+    // More than sshd lets one connection have open at once (10 channels), and big enough for their transfers to overlap:
+    // random bytes, as of photos, which the session's zlib doesn't shrink.
+    val photos = (1..12).map { n -> File(context.cacheDir, "снимок-$run-$n.jpg").apply { writeBytes(ByteArray(4 shl 20).also(java.util.Random(n.toLong())::nextBytes)) } }
+    val picked = ClipData.newRawUri(null, Uri.fromFile(photos.first())).apply { photos.drop(1).forEach { addItem(ClipData.Item(Uri.fromFile(it))) } }
+    intercept(Intent.ACTION_OPEN_DOCUMENT, Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().apply { clipData = picked }))
+
+    try {
+      launchApp(compose, "manyFilesPickedAtOnceAllGoToTheHost") {
+        openPane(pane)
+        openFiles()
+        compose.onNodeWithTag("tab-outgoing").performClick()
+        compose.onNodeWithTag("sendFiles").performClick()
+        // The window says which wait for their turn: a picture of it, if the queue lasts long enough for one.
+        runCatching {
+          compose.waitUntil(5_000) { compose.onAllNodes(hasText(text(R.string.files_queued), substring = true)).fetchSemanticsNodes().isNotEmpty() }
+          Screens.take(compose, "12g-files-queued")
+        }
+        // Each lands on the host whole; none is left in the window with an error, or still going.
+        Device.waitFor("every file on the host", timeoutMs = 60_000) { fixture.exec("ls -A '$uploads' 2>/dev/null").lines().count { it.startsWith("снимок-$run-") } == photos.size }
+        Device.waitFor("every upload ended") { server.files.uploads.value.isEmpty() }
+        for (photo in photos) assertEquals(photo.name, sha256(photo.readBytes()), fixture.sha256("$uploads/${photo.name}"))
+        closeFiles()
+      }
+    } finally {
+      photos.forEach { it.delete() }
     }
   }
 

@@ -112,6 +112,21 @@ class AgentsE2eTest {
   }
 
   @Test
+  fun multilinePromptGoesAsOnePaste() {
+    launchApp(compose, "multilinePromptGoesAsOnePaste") {
+      openPane(idle)
+      compose.onNodeWithTag("prompt").performTextInput("первая строка $run\nвторая строка")
+      compose.onNodeWithTag("sendPrompt").performClick()
+      fixture.waitForScreen(idle) { it.contains("вторая строка^[[201~") }
+      // A key after the prompt comes on a line of its own once Enter has followed the paste.
+      compose.onNodeWithTag("key-2").performClick()
+      val screen = fixture.waitForScreen(idle) { s -> s.lines().map { it.trim() }.any { it == "2" || it.endsWith("^[[201~2") } }
+      // As Claude Code and Codex get it: both lines in one paste, and then Enter.
+      assertTrue(screen, screen.lines().map { it.trim() }.windowed(3).contains(listOf("^[[200~первая строка $run", "вторая строка^[[201~", "2")))
+    }
+  }
+
+  @Test
   fun promptToWaitingAgentExplainsWhatToDo() {
     launchApp(compose, "promptToWaitingAgentExplainsWhatToDo") {
       openPane(blocked)
@@ -239,24 +254,24 @@ class AgentsE2eTest {
     fixture.fakeKittyAgent(claude, "working")
     launchApp(compose, "ctrlEnterSendsThePromptAtOnce") { scenario ->
       openPane(claude)
-      // The prompt goes as with the send button, and Ctrl+Enter after it.
+      // The prompt goes as with the send button, a paste and Enter, and Ctrl+Enter after it.
       compose.onNodeWithTag("prompt").performTextInput("now please")
       ctrlEnter()
-      fixture.waitForScreen(claude) { lastLines(it) == listOf("now please", "^[[13;5u") }
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[200~now please^[[201~", "^[[13;5u") }
       compose.onNodeWithTag("prompt").assert(promptHolds(""))
       // Without a prompt Ctrl+Enter goes by itself.
       ctrlEnter()
-      fixture.waitForScreen(claude) { lastLines(it) == listOf("now please", "^[[13;5u^[[13;5u") }
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[200~now please^[[201~", "^[[13;5u^[[13;5u") }
       // The sticky Ctrl with Enter from the soft keyboard is Ctrl+Enter too, and the new line stays out of the prompt.
       compose.onNodeWithTag("prompt").performTextInput("and this")
       key("mod-ctrl")
       keyboard(scenario) { commitText("\n", 1) }
-      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[13;5u^[[13;5uand this", "^[[13;5u") }
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[13;5u^[[13;5u^[[200~and this^[[201~", "^[[13;5u") }
       compose.onNodeWithTag("prompt").assert(promptHolds(""))
       // And with Enter from the row, by itself.
       key("mod-ctrl")
       key("key-enter")
-      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[13;5u^[[13;5uand this", "^[[13;5u^[[13;5u") }
+      fixture.waitForScreen(claude) { lastLines(it) == listOf("^[[13;5u^[[13;5u^[[200~and this^[[201~", "^[[13;5u^[[13;5u") }
     }
   }
 
@@ -269,8 +284,8 @@ class AgentsE2eTest {
       openPane(codex)
       compose.onNodeWithTag("prompt").performTextInput("just this")
       ctrlEnter()
-      // The line comes twice: as typed, then from cat.
-      fixture.waitForScreen(codex) { screen -> screen.lines().count { it.trim() == "just this" } == 2 }
+      // A paste and Enter, as from the send button.
+      fixture.waitForScreen(codex) { screen -> screen.lines().count { it.trim() == "^[[200~just this^[[201~" } == 1 }
       compose.onNodeWithTag("prompt").assert(promptHolds(""))
       // Ctrl+Enter would come right after the prompt.
       Thread.sleep(1_000)

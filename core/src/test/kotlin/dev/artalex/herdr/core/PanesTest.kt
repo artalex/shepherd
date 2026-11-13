@@ -143,6 +143,15 @@ class PanesTest {
   }
 
   @Test
+  fun promptsWithNothingForTheAgentCountAsSent() = runTest {
+    // herdr refuses an empty prompt, and would paste one of spaces with Enter after it.
+    val sent = mutableListOf<String>()
+    val left = promptWhenReady("w1:p2", listOf("\u001b\u0003", "/effort max", " \u0007 "), MutableStateFlow(snapshot(AgentStatus.IDLE)), 180_000) { sent += it }
+    assertEquals(emptyList(), left)
+    assertEquals(listOf("/effort max"), sent)
+  }
+
+  @Test
   fun promptsNotSentInTimeComeBack() = runTest {
     val left = promptWhenReady("w1:p2", listOf("/effort max"), MutableStateFlow(snapshot(AgentStatus.BLOCKED)), 180_000) { error("never ready") }
     assertEquals(listOf("/effort max"), left)

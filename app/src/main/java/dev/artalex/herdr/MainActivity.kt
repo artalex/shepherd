@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  // Every later start of the app comes here (see the manifest), the launcher icon's too: its intent has no agent and no
+  // share, and the screen stays as the user left it.
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     Alerts.agentOf(intent)?.let { opening = it }

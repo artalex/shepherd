@@ -61,4 +61,13 @@ class PromptDraftTest {
     assertNull(draft.take())
     assertEquals(TextFieldValue("второй"), draft.value)
   }
+
+  @Test
+  fun textWithNothingForTheAgentStaysInTheField() {
+    // Control characters alone, as a share or the clipboard may bring them, with a space after them.
+    draft.value = TextFieldValue("\u001b\u0003 ")
+    assertNull(draft.take())
+    assertEquals(TextFieldValue("\u001b\u0003 "), draft.value)
+    assertFalse(draft.sending)
+  }
 }

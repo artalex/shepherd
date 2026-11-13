@@ -68,8 +68,6 @@ sealed interface ConnectionProblem {
 
   data class HerdrTooOld(val version: String) : ConnectionProblem
 
-  data class WrongProtocol(val protocol: Int?) : ConnectionProblem
-
   data class Other(val detail: String) : ConnectionProblem
 }
 
@@ -241,13 +239,13 @@ class ConnectionController(
         Log.w(TAG, "connection attempt failed: ${e.message}")
         return problemOf(e)
       }
+    // A protocol number the app has never seen is no reason to stay away: the API doesn't go by it (see check()).
     val check = host.status.check()
     val problem =
       when (check) {
         HostCheck.Ok, HostCheck.RestartNeeded -> null
         HostCheck.ServerNotRunning -> ConnectionProblem.HerdrNotRunning
         is HostCheck.TooOld -> ConnectionProblem.HerdrTooOld(check.version)
-        is HostCheck.WrongProtocol -> ConnectionProblem.WrongProtocol(check.protocol)
       }
     if (problem != null) {
       conn.close()
@@ -255,7 +253,8 @@ class ConnectionController(
     }
     connection = conn
     _state.value = ConnectionState.Connected(host, restartNeeded = check == HostCheck.RestartNeeded)
-    Log.i(TAG, "connected to herdr ${host.status.server.version}, session ${host.session}")
+    val server = host.status.server
+    Log.i(TAG, "connected to herdr ${server.version} (protocol ${server.protocol}; CLI ${host.status.client.version}, compatible: ${server.compatible}), session ${host.session}")
     // We start over when JSch notices a dead session through keepalives, or when a failed API request turns out to
     // be a herdr server that stopped.
     while (conn.isConnected) {

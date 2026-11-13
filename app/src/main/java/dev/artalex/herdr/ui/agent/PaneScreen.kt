@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
+import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.core.store.PaneGrid
 import dev.artalex.herdr.core.terminal.CloseReason
 import dev.artalex.herdr.ui.common.rememberTerminalFont
@@ -43,11 +44,12 @@ fun PaneScreen(viewModel: AgentViewModel, grid: PaneGrid, onLink: (String) -> Un
     onStopOrDispose { stream.release() }
   }
   // Nothing here asks the user, unlike the terminal screen: someone else's control is waited out, and a stream
-  // that broke off comes back once it can.
+  // that broke off comes back once it can. Without a connection it can't: it comes back with the connection, at once.
   LaunchedEffect(stream) {
     while (true) {
       val phase = stream.phase.first { retryDelay(it) != null }
       delay(checkNotNull(retryDelay(phase)))
+      viewModel.server.connection.state.first { it is ConnectionState.Connected }
       if (retryDelay(stream.phase.value) != null) stream.reconnect()
     }
   }

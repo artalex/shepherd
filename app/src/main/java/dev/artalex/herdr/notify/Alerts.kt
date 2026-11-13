@@ -62,14 +62,19 @@ class Alerts(private val context: Context) {
    * The agent in [paneId] of [server] came to [status], [AgentStatus.DONE] for any finish: titled as on the agent
    * list, with its workspace next to the status. [withServer] names the server too, as with several on. The
    * notification keeps the status the agent has in [snapshot], which [dropStale] holds it to.
+   *
+   * Returns whether Android takes the notification in place of the agent's previous one. It drops a notification of a
+   * channel the user switched off, and the previous one stays as it was.
    */
-  fun show(server: ServerConfig, withServer: Boolean, snapshot: SessionSnapshot, paneId: String, status: AgentStatus, atMs: Long) {
+  fun show(server: ServerConfig, withServer: Boolean, snapshot: SessionSnapshot, paneId: String, status: AgentStatus, atMs: Long): Boolean {
+    val channel = if (status == AgentStatus.BLOCKED) BLOCKED_CHANNEL else DONE_CHANNEL
+    if (!allowed() || manager.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE) return false
     val pane = snapshot.panes.firstOrNull { it.paneId == paneId }
     val workspace = pane?.let { p -> snapshot.workspaces.firstOrNull { it.workspaceId == p.workspaceId } }?.label?.takeIf { it.isNotBlank() }
     val agentStatus = snapshot.agents.firstOrNull { it.paneId == paneId }?.agentStatus ?: status
     val text = context.getString(if (status == AgentStatus.BLOCKED) R.string.alerts_blocked else R.string.alerts_done)
     val notification =
-      NotificationCompat.Builder(context, if (status == AgentStatus.BLOCKED) BLOCKED_CHANNEL else DONE_CHANNEL)
+      NotificationCompat.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(pane?.let(::paneTitle) ?: paneId)
         .setContentText(listOfNotNull(text, workspace).joinToString(" · "))
@@ -80,21 +85,27 @@ class Alerts(private val context: Context) {
         .setContentIntent(openAgent(server.id, paneId))
         .addExtras(bundleOf(EXTRA_STATUS to agentStatus.wire))
         .build()
-    if (allowed()) manager.notify(tag(server.id, paneId), ALERT_ID, notification)
+    manager.notify(tag(server.id, paneId), ALERT_ID, notification)
+    return true
   }
 
   /**
    * Takes down the notifications of [serverId] whose agent left the status it had then, or is gone: a question
    * answered, work started again, a `done` seen on the desktop, which herdr turns into `idle`. A finish that came as
    * `idle` stays until the agent works again.
+   *
+   * The agents in [justShown] keep theirs: Android has just taken a new one in the place of the old ([show]), and lists
+   * the old one until it gets to the new. A cancel by the same tag after the new notification takes the new one down.
    */
-  fun dropStale(serverId: String, marks: Map<String, AgentMark>) {
+  fun dropStale(serverId: String, marks: Map<String, AgentMark>, justShown: Set<String> = emptySet()) {
     for (shown in shown(serverId)) {
+      val paneId = shown.tag?.substringAfter('/')
+      if (paneId in justShown) continue
       // Notifications of 2.4 and before have no status of their own: their channel's.
       val status =
         shown.notification.extras.getString(EXTRA_STATUS)?.let(AgentStatus::fromWire)
           ?: if (shown.notification.channelId == BLOCKED_CHANNEL) AgentStatus.BLOCKED else AgentStatus.DONE
-      if (marks[shown.tag?.substringAfter('/')]?.status != status) manager.cancel(shown.tag, ALERT_ID)
+      if (marks[paneId]?.status != status) manager.cancel(shown.tag, ALERT_ID)
     }
   }
 

@@ -7,6 +7,7 @@ import dev.artalex.herdr.core.notify.AgentMark
 import dev.artalex.herdr.core.notify.AgentMarks
 import dev.artalex.herdr.core.notify.agentMarks
 import dev.artalex.herdr.core.notify.notableChanges
+import dev.artalex.herdr.core.notify.seenMarks
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -84,6 +85,41 @@ class AgentMarksTest {
     val before = mapOf("p1" to mark(AgentStatus.WORKING))
     val after = before + ("p9" to mark(AgentStatus.BLOCKED)) + ("p8" to mark(AgentStatus.WORKING)) + ("p7" to mark(AgentStatus.IDLE, 3, finished = 3))
     assertEquals(mapOf("p9" to AgentStatus.BLOCKED, "p7" to AgentStatus.DONE), notableChanges(before, after))
+  }
+
+  @Test
+  fun agentsOffTheScreenStayNews() {
+    // On one agent's screen, the other agent asks and a third finishes: the screen showed neither.
+    val before = mapOf("p1" to mark(AgentStatus.WORKING, 4), "p2" to mark(AgentStatus.WORKING, 2), "p3" to mark(AgentStatus.WORKING, 6))
+    val after = mapOf("p1" to mark(AgentStatus.BLOCKED, 7), "p2" to mark(AgentStatus.BLOCKED, 8), "p3" to mark(AgentStatus.IDLE, 9, finished = 9))
+    val seen = seenMarks(before, after) { it == "p1" }
+    assertEquals(mapOf("p1" to mark(AgentStatus.BLOCKED, 7), "p2" to mark(AgentStatus.WORKING, 2), "p3" to mark(AgentStatus.WORKING, 6)), seen)
+    // Once the app leaves the screen, theirs is news, the shown one's isn't.
+    assertEquals(mapOf("p2" to AgentStatus.BLOCKED, "p3" to AgentStatus.DONE), notableChanges(seen, after))
+  }
+
+  @Test
+  fun everyAgentShownIsSeen() {
+    val before = mapOf("p1" to mark(AgentStatus.WORKING, 4), "p2" to mark(AgentStatus.WORKING, 2))
+    val after = mapOf("p1" to mark(AgentStatus.BLOCKED, 7), "p2" to mark(AgentStatus.IDLE, 8, finished = 8))
+    assertEquals(after, seenMarks(before, after) { true })
+    assertEquals(emptyMap(), notableChanges(seenMarks(before, after) { true }, after))
+  }
+
+  @Test
+  fun newAgentOffTheScreenStaysNewAndAGoneOneGoes() {
+    // An agent started on the desktop asks at once, while the screen shows another; the closed pane's agent goes.
+    val before = mapOf("p1" to mark(AgentStatus.WORKING, 4), "p2" to mark(AgentStatus.BLOCKED, 2))
+    val after = mapOf("p1" to mark(AgentStatus.WORKING, 4), "p9" to mark(AgentStatus.BLOCKED, 3))
+    val seen = seenMarks(before, after) { it == "p1" }
+    assertEquals(mapOf("p1" to mark(AgentStatus.WORKING, 4)), seen)
+    assertEquals(mapOf("p9" to AgentStatus.BLOCKED), notableChanges(seen, after))
+  }
+
+  @Test
+  fun firstLookTakesInEveryAgent() {
+    val after = mapOf("p1" to mark(AgentStatus.BLOCKED, 7), "p2" to mark(AgentStatus.IDLE, 8, finished = 8))
+    assertEquals(after, seenMarks(null, after) { false })
   }
 
   @Test

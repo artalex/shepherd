@@ -26,15 +26,23 @@ interface ProcessStream : ByteStream {
 /**
  * How the client reaches a herdr host.
  *
- * herdr serves exactly one request per API connection, so [openApi] is called once per request.
+ * herdr serves exactly one request per API connection, so [openApi] is called once per request. What a transport opens
+ * it opens safely for any caller: one cancelled meanwhile leaves nothing open, and an open that gets no answer ends in
+ * [dev.artalex.herdr.core.rpc.HerdrTimeoutException].
  */
 interface HerdrTransport {
   /** Opens a fresh connection to the herdr API socket. */
-  fun openApi(): ByteStream
+  suspend fun openApi(): ByteStream
 
   /** Starts [argv] on the herdr host and connects to its stdin/stdout. */
-  fun exec(argv: List<String>): ProcessStream
+  suspend fun exec(argv: List<String>): ProcessStream
+
+  /**
+   * Starts [argv], `herdr terminal session control` for a live terminal stream, as [exec] does. Over SSH it may take a
+   * channel kept for terminal streams, so a pane's screen opens while transfers and lookups take the rest.
+   */
+  suspend fun openTerminal(argv: List<String>): ProcessStream = exec(argv)
 
   /** Files on the herdr host; test transports without them throw. */
-  fun openFiles(): RemoteFiles = throw UnsupportedOperationException("this transport has no file access")
+  suspend fun openFiles(): RemoteFiles = throw UnsupportedOperationException("this transport has no file access")
 }

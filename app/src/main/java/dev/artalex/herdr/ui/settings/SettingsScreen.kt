@@ -1,5 +1,6 @@
 package dev.artalex.herdr.ui.settings
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
@@ -36,14 +37,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.artalex.herdr.R
 import dev.artalex.herdr.ShareActivity
 import dev.artalex.herdr.core.ssh.SshKeyPair
 
 /**
- * The servers, each opening its form, the notifications, the Telegram bot for answers, and the phone's key, which every
- * server needs in its authorized_keys.
+ * The servers, each opening its form, the notifications, the Telegram bot for answers, the phone's key, which every
+ * server needs in its authorized_keys, and the link to the privacy policy.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,8 +82,31 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onOpenServe
       TelegramSection(viewModel)
       HorizontalDivider(Modifier.padding(vertical = 16.dp))
       Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { KeySection(key, onGenerate = viewModel::generateKey) }
+      HorizontalDivider(Modifier.padding(vertical = 16.dp))
+      PrivacyPolicy()
     }
   }
+}
+
+/** The privacy policy on the web, opened in the browser: Google Play wants it reachable from the app as well. */
+@Composable
+private fun PrivacyPolicy() {
+  val context = LocalContext.current
+  val title = stringResource(R.string.privacy_policy)
+  val url = stringResource(R.string.privacy_policy_url)
+  val noBrowser = stringResource(R.string.files_no_viewer, title)
+  ListItem(
+    headlineContent = { Text(title) },
+    modifier =
+      Modifier.clickable {
+          try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE))
+          } catch (e: ActivityNotFoundException) {
+            Toast.makeText(context, noBrowser, Toast.LENGTH_SHORT).show()
+          }
+        }
+        .testTag("privacyPolicy"),
+  )
 }
 
 /** The phone's public key to put on servers, or the button that makes the key. */

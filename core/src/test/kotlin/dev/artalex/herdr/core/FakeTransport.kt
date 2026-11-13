@@ -17,9 +17,9 @@ import kotlinx.serialization.json.jsonPrimitive
 class FakeTransport(private val respond: (JsonObject) -> String?) : HerdrTransport {
   val requests = mutableListOf<JsonObject>()
 
-  override fun openApi(): ByteStream = FakeStream()
+  override suspend fun openApi(): ByteStream = FakeStream()
 
-  override fun exec(argv: List<String>): ProcessStream = error("exec is not faked")
+  override suspend fun exec(argv: List<String>): ProcessStream = error("exec is not faked")
 
   private inner class FakeStream : ByteStream {
     private val sent = ByteArrayOutputStream()

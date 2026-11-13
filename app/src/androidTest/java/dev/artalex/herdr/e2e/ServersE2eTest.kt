@@ -155,7 +155,15 @@ class ServersE2eTest {
       compose.onNodeWithTag("openSettings").performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("serverRow-$SECOND"), 10_000)
       Screens.take(compose, "13d-settings")
-      compose.onNodeWithTag("serverRow-$SECOND").performClick()
+
+      // The last row opens the privacy policy in the browser.
+      OpenedLinks().use { opened ->
+        compose.onNodeWithTag("privacyPolicy").performScrollTo().performClick()
+        compose.waitUntil(5_000) { opened.all.isNotEmpty() }
+        assertEquals(listOf(text(R.string.privacy_policy_url)), opened.all)
+      }
+
+      compose.onNodeWithTag("serverRow-$SECOND").performScrollTo().performClick()
       compose.waitUntilExactlyOneExists(hasTestTag("name"), 10_000)
       Screens.take(compose, "13e-server-form")
       compose.onNodeWithTag("name").performTextReplacement("переименован")

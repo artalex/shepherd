@@ -1,8 +1,10 @@
 package dev.artalex.herdr.ui.files
 
+import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.res.Resources
 import android.text.format.DateUtils
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,8 +47,10 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
@@ -100,9 +104,9 @@ import kotlinx.coroutines.launch
 
 /**
  * The files window of the agent screen. "Incoming": files whose paths are on the screen and those found before;
- * a tap downloads one and opens it. "Outgoing": files sent from the phone; a tap gives [onInsertPath] the path on
- * the host. Paths relative to the agent's folder start in [cwd]. Both list the files of the pane of [origin], or with
- * [workspace] those of its whole workspace; [onWorkspace] switches.
+ * a tap downloads one and opens it, or for an APK says where it is on the phone. "Outgoing": files sent from the
+ * phone; a tap gives [onInsertPath] the path on the host. Paths relative to the agent's folder start in [cwd]. Both
+ * list the files of the pane of [origin], or with [workspace] those of its whole workspace; [onWorkspace] switches.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,7 +133,11 @@ fun FilesSheet(
   var confirmClear by remember { mutableStateOf<Int?>(null) }
   LaunchedEffect(files) {
     launch { files.messages.collect { snackbar.showSnackbar(resources.getString(it.text, it.arg)) } }
-    files.openings.collect { if (!view(context, it)) snackbar.showSnackbar(resources.getString(R.string.files_no_viewer, it.name)) }
+    files.openings.collect {
+      // The offer waits for its answer apart, so that the next file opens meanwhile.
+      if (it.isPackage) launch { offerDownloads(context, resources, snackbar) }
+      else if (!view(context, it)) snackbar.showSnackbar(resources.getString(R.string.files_no_viewer, it.name))
+    }
   }
   val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> files.upload(uris, origin) }
   // Until the pane is known, everything shows.
@@ -187,7 +195,12 @@ fun FilesSheet(
         }
       }
       SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter)) {
-        Snackbar(it, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
+        Snackbar(
+          it,
+          containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+          contentColor = MaterialTheme.colorScheme.onSurface,
+          actionColor = MaterialTheme.colorScheme.primary,
+        )
       }
     }
   }
@@ -344,6 +357,7 @@ private fun FoundRow(file: FoundFile, transfer: Transfer?, home: String?, onOpen
   val status =
     when {
       error != null -> stringResource(R.string.files_download_failed, error)
+      transfer?.waiting == true -> stringResource(R.string.files_queued)
       transfer != null -> stringResource(R.string.files_downloading, transfer.percent)
       file.gone -> stringResource(R.string.files_gone)
       file.fresh -> stringResource(R.string.files_downloaded)
@@ -380,10 +394,15 @@ private fun PathRow(path: String, home: String?, status: String, checking: Boole
 @Composable
 private fun UploadRow(upload: Upload, onCancel: () -> Unit, onRetry: () -> Unit, onDismiss: () -> Unit) {
   val error = upload.transfer.error
+  val status =
+    when {
+      error != null -> stringResource(R.string.files_upload_failed, error)
+      upload.transfer.waiting -> stringResource(R.string.files_queued)
+      else -> stringResource(R.string.files_uploading, upload.transfer.percent)
+    }
   FileRow(
     name = upload.name,
-    details = listOfNotNull(upload.size?.let { sizeText(it) }, if (error != null) stringResource(R.string.files_upload_failed, error) else stringResource(R.string.files_uploading, upload.transfer.percent))
-      .joinToString(" · "),
+    details = listOfNotNull(upload.size?.let { sizeText(it) }, status).joinToString(" · "),
     tag = "upload-${upload.name}",
     onClick = null,
   ) {
@@ -467,6 +486,26 @@ private fun view(context: Context, opening: Opening): Boolean =
   } catch (e: ActivityNotFoundException) {
     false
   }
+
+/**
+ * A downloaded APK isn't opened: the app may not have Android install a package, Google Play leaves that to file
+ * managers and the like. The window says where the file is and offers the phone's downloads, to install it from there.
+ */
+private suspend fun offerDownloads(context: Context, resources: Resources, snackbar: SnackbarHostState) {
+  val downloads = resources.getString(R.string.files_show_downloads)
+  val answer =
+    snackbar.showSnackbar(
+      resources.getString(R.string.files_apk_saved, resources.getString(R.string.app_name)),
+      actionLabel = downloads,
+      duration = SnackbarDuration.Long,
+    )
+  if (answer != SnackbarResult.ActionPerformed) return
+  try {
+    context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+  } catch (e: ActivityNotFoundException) {
+    snackbar.showSnackbar(resources.getString(R.string.files_no_viewer, downloads))
+  }
+}
 
 /** The folder of [path], with the remote [home] as `~`. */
 internal fun shortDir(path: String, home: String?): String {

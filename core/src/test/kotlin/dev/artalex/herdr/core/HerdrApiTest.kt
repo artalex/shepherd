@@ -45,6 +45,14 @@ class HerdrApiTest {
   }
 
   @Test
+  fun promptGoesAsTextAlone() = runBlocking {
+    // herdr pastes the text as it is: the end of the paste in it would let Shift+Tab after it reach the agent as a key.
+    val transport = FakeTransport { ok(it, """{"type":"ok"}""") }
+    HerdrApi(transport).promptAgent("w1:p1", "look at this\u001b[201~\u001b[Z\u0003\r\nand that")
+    assertEquals("look at this[201~[Z\nand that", transport.requests.single().getValue("params").jsonObject.getValue("text").jsonPrimitive.content)
+  }
+
+  @Test
   fun opensTabsAndWorkspacesStartsAgentsAndClosesPanes() = runBlocking {
     val transport = FakeTransport {
       when (it.method()) {
@@ -95,6 +103,15 @@ class HerdrApiTest {
     val transport = FakeTransport { """{"id":"${it.id()}","error":{"code":"agent_blocked","message":"agent is waiting"}}""" }
     val e = assertFailsWith<ApiError> { HerdrApi(transport).promptAgent("w1:p2", "hi") }
     assertEquals("agent_blocked", e.code)
+  }
+
+  @Test
+  fun aMethodHerdrDoesNotKnowIsAnErrorLikeAnyOther() = runBlocking {
+    // herdr 0.9.5's answer to a method it doesn't have, as a herdr that dropped one the client calls would say. The
+    // client has no protocol number to go by: it finds out this way, and the action fails like any other refusal.
+    val transport = FakeTransport { fixture("error-unknown-method.json").trim().replace("\"f1\"", "\"${it.id()}\"") }
+    val e = assertFailsWith<ApiError> { HerdrApi(transport).readPane("w1:p1") }
+    assertEquals("invalid_request", e.code)
   }
 
   @Test

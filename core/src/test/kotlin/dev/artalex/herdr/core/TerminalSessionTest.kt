@@ -77,7 +77,7 @@ class TerminalSessionTest {
     val session = TerminalSession(stream)
     session.sendText("ls\r")
     session.sendBytes(byteArrayOf(0x1b, '['.code.toByte(), 'A'.code.toByte()))
-    session.paste("a\nb\u001b[201~c")
+    session.paste("a\nb\u001b[201~c\u0003\r\nd")
     session.resize(60, 24)
     session.scroll(3, column = 12, row = 7)
     session.scroll(-6, column = 4, row = 9)
@@ -86,7 +86,7 @@ class TerminalSessionTest {
       listOf(
         """{"type":"terminal.input","text":"ls\r"}""",
         """{"type":"terminal.input","bytes":"G1tB"}""",
-        """{"type":"terminal.input","text":"\u001b[200~a\nb[201~c\u001b[201~"}""",
+        """{"type":"terminal.input","text":"\u001b[200~a\nb[201~c\nd\u001b[201~"}""",
         """{"type":"terminal.resize","cols":60,"rows":24}""",
         """{"type":"terminal.scroll","direction":"up","lines":3,"column":12,"row":7}""",
         """{"type":"terminal.scroll","direction":"down","lines":6,"column":4,"row":9}""",

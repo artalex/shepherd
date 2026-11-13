@@ -6,6 +6,8 @@ import dev.artalex.herdr.core.files.FileShelf
 import dev.artalex.herdr.core.files.FoundFile
 import dev.artalex.herdr.core.files.HostSide
 import dev.artalex.herdr.core.files.LocalCopy
+import dev.artalex.herdr.core.files.NoConnection
+import dev.artalex.herdr.core.files.PARALLEL_UPLOADS
 import dev.artalex.herdr.core.files.PhoneSide
 import dev.artalex.herdr.core.files.RemoteEntry
 import dev.artalex.herdr.core.files.RemoteFiles
@@ -51,8 +53,54 @@ class TransfersTest {
     /** Downloads break off after this many bytes, as on a dropped connection. */
     @Volatile var breakAfter: Int? = null
 
-    override suspend fun <T> withFiles(block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T =
-      Channel(this).also { channels += it }.use { block(it) { "~/Downloads/herdr-android" } }
+    /** Uploads alone wait as [stuck] ones do: a slow uplink, while downloads come. */
+    @Volatile var uploadsStuck = false
+
+    /**
+     * Without a connection a transfer waits for one, until it is back or the test has the waits [giveUp]; [waiting] counts
+     * the transfers that wait for it now. A wait past [CONNECT_WAIT_MS] fails too, so that no test hangs.
+     */
+    @Volatile var connected = true
+    @Volatile var giveUp = false
+    val waiting = AtomicInteger()
+
+    /** Transfers under way, those that wait for their turn too, and the most channels that were open at once. */
+    val transferring = AtomicInteger()
+    private val open = AtomicInteger()
+    val mostOpen = AtomicInteger()
+
+    override suspend fun <T> whileTransferring(block: suspend () -> T): T {
+      transferring.incrementAndGet()
+      try {
+        return block()
+      } finally {
+        transferring.decrementAndGet()
+      }
+    }
+
+    override suspend fun awaitConnection() {
+      if (connected) return
+      waiting.incrementAndGet()
+      try {
+        val deadline = System.nanoTime() + CONNECT_WAIT_MS * 1_000_000
+        while (!connected) {
+          if (giveUp || System.nanoTime() > deadline) throw NoConnection()
+          delay(10)
+        }
+      } finally {
+        waiting.decrementAndGet()
+      }
+    }
+
+    override suspend fun <T> withFiles(block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T {
+      if (!connected) throw NoConnection()
+      mostOpen.accumulateAndGet(open.incrementAndGet(), ::maxOf)
+      try {
+        return Channel(this).also { channels += it }.use { block(it) { "~/Downloads/herdr-android" } }
+      } finally {
+        open.decrementAndGet()
+      }
+    }
   }
 
   private class Channel(private val host: Host) : RemoteFiles {
@@ -79,14 +127,14 @@ class TransfersTest {
         throw IOException(it)
       }
       val bytes = input.readBytes()
-      waitWhileStuck()
+      waitWhileStuck(upload = true)
       if (!progress(bytes.size.toLong())) throw CancellationException("upload of $name stopped")
       // A taken name stays with its file, as SftpFiles publishes.
       return (1..100).map { "$dir/${numberedName(name, it)}" }.first { host.files.putIfAbsent(it, bytes) == null }
     }
 
-    private fun waitWhileStuck() {
-      while (host.stuck) {
+    private fun waitWhileStuck(upload: Boolean = false) {
+      while (host.stuck || (upload && host.uploadsStuck)) {
         if (closed) throw IOException("channel closed")
         Thread.sleep(10)
       }
@@ -213,6 +261,91 @@ class TransfersTest {
   }
 
   @Test
+  fun transfersTakeTurnsAndTheWaitingOnesKeepTheHostUp() = runBlocking {
+    val sources = (1..PARALLEL_UPLOADS + 2).map { "content://picker/$it.bin" }
+    sources.forEach { phone.sources[it] = ByteArray(16) }
+    host.stuck = true
+    val transfers = Transfers(scope, phone, host, { shelf }, uploadEnded = { upload, result -> ended += upload to result }, stallMs = 10_000, graceMs = 100)
+    transfers.upload(sources, origin = null)
+    // A few at once, each over its channel; the rest wait for their turn, as transfers under way for the host.
+    until { host.channels.size == PARALLEL_UPLOADS && host.transferring.get() == sources.size }
+    delay(200)
+    assertEquals(PARALLEL_UPLOADS, host.channels.size)
+    // The window shows which wait for their turn.
+    assertEquals(sources.size - PARALLEL_UPLOADS, transfers.uploads.value.count { it.transfer.waiting })
+    host.stuck = false
+    until { ended.size == sources.size }
+    assertTrue(ended.all { it.second.isSuccess }, "$ended")
+    assertEquals(PARALLEL_UPLOADS, host.mostOpen.get())
+    until { host.transferring.get() == 0 }
+  }
+
+  @Test
+  fun aDownloadDoesNotWaitBehindTheUploads() = runBlocking {
+    // A dozen photos go to the host over a slow uplink; meanwhile the user opens a file the agent mentions.
+    val sources = (1..12).map { "content://picker/$it.jpg" }
+    sources.forEach { phone.sources[it] = ByteArray(16) }
+    host.uploadsStuck = true
+    val transfers = Transfers(scope, phone, host, { shelf }, uploadEnded = { upload, result -> ended += upload to result }, stallMs = 10_000, graceMs = 100)
+    transfers.upload(sources, origin = null)
+    until { host.channels.size == PARALLEL_UPLOADS }
+    host.files["/srv/report.txt"] = "отчёт".toByteArray()
+    val shown = async { withTimeout(5_000) { transfers.downloaded.first() } }
+    delay(50)
+    transfers.open(FoundFile("/srv/report.txt", 10, MTIME))
+    assertEquals("report.txt", shown.await().name)
+    host.uploadsStuck = false
+    until { ended.size == sources.size }
+  }
+
+  @Test
+  fun aSecondDownloadWaitsForItsTurnAndSaysSo() = runBlocking {
+    host.files["/srv/a.txt"] = "a".toByteArray()
+    host.files["/srv/b.txt"] = "b".toByteArray()
+    host.stuck = true
+    val transfers = Transfers(scope, phone, host, { shelf }, stallMs = 10_000, graceMs = 100)
+    transfers.open(FoundFile("/srv/a.txt", 1, MTIME))
+    until { host.channels.size == 1 }
+    transfers.open(FoundFile("/srv/b.txt", 1, MTIME))
+    until { transfers.downloads.value.size == 2 }
+    delay(200)
+    assertEquals(mapOf("/srv/a.txt" to false, "/srv/b.txt" to true), transfers.downloads.value.mapValues { it.value.waiting })
+    assertEquals(1, host.channels.size)
+    host.stuck = false
+    until { transfers.downloads.value.isEmpty() && phone.saved.size == 2 }
+  }
+
+  @Test
+  fun withoutAConnectionTheTransfersWaitForItTogether() = runBlocking {
+    val sources = (1..12).map { "content://picker/$it.jpg" }
+    sources.forEach { phone.sources[it] = ByteArray(16) }
+    host.connected = false
+    val ends = async { transfers.uploadAll(sources, origin = null) }
+    // One wait for all of them at once, not one for each turn after the one before it gave up.
+    until { host.waiting.get() == sources.size }
+    host.giveUp = true
+    assertEquals(sources.map { "no connection to the host" }, ends.await().map { it.path.exceptionOrNull()?.message })
+  }
+
+  @Test
+  fun aConnectionGoneWhileTransfersWaitForTheirTurnIsWaitedForAwayFromTheTurns() = runBlocking {
+    val sources = (1..12).map { "content://picker/$it.jpg" }
+    sources.forEach { phone.sources[it] = ByteArray(16) }
+    host.uploadsStuck = true
+    val transfers = Transfers(scope, phone, host, { shelf }, uploadEnded = { upload, result -> ended += upload to result }, stallMs = 10_000, graceMs = 100)
+    transfers.upload(sources, origin = null)
+    until { host.channels.size == PARALLEL_UPLOADS }
+    // The connection goes while nine wait for their turn, and comes back: those that found it gone wait for it, all at
+    // once and away from the turns, and go on.
+    host.connected = false
+    host.uploadsStuck = false
+    until { host.waiting.get() == sources.size - PARALLEL_UPLOADS }
+    host.connected = true
+    until { ended.size == sources.size }
+    assertTrue(ended.all { it.second.isSuccess }, "$ended")
+  }
+
+  @Test
   fun cancelledStuckUploadLetsGoOfItsChannel() = runBlocking {
     phone.sources["content://picker/big.bin"] = ByteArray(1024)
     host.stuck = true
@@ -310,5 +443,6 @@ class TransfersTest {
 
   private companion object {
     const val MTIME = 1_000L
+    const val CONNECT_WAIT_MS = 10_000L
   }
 }

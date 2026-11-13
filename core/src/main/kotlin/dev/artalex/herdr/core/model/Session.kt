@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class SessionSnapshot(
   val version: String,
-  val protocol: Int,
+  /** herdr's private protocol between CLI and server, not the API's: nothing goes by it, and a snapshot without it decodes. */
+  val protocol: Int? = null,
   val workspaces: List<WorkspaceInfo> = emptyList(),
   val tabs: List<TabInfo> = emptyList(),
   val panes: List<PaneInfo> = emptyList(),

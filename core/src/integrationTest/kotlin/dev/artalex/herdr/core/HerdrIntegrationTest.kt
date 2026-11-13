@@ -57,7 +57,7 @@ class HerdrIntegrationTest {
 
   @BeforeAll
   fun startServer() {
-    assumeTrue(HerdrTestServer.available, "herdr >= $MIN_HERDR_VERSION is not installed")
+    HerdrTestServer.assumeAvailable()
     server = HerdrTestServer()
     api = HerdrApi(server.transport)
   }
@@ -168,9 +168,11 @@ class HerdrIntegrationTest {
   }
 
   @Test
-  fun pingReportsSupportedProtocol() = runBlocking {
+  fun pingAnswersAsHerdrStatusSays() = runBlocking {
+    // Whatever the protocol number: the client doesn't go by it.
     val pong = api.ping()
-    assertEquals(SUPPORTED_PROTOCOL, pong.protocol)
+    assertEquals(server.status.server.version, pong.version)
+    assertEquals(server.status.server.protocol, pong.protocol)
   }
 
   @Test
@@ -245,6 +247,17 @@ class HerdrIntegrationTest {
   }
 
   @Test
+  fun promptReachesTheAgentAsOnePasteOfText() = runBlocking {
+    // An agent that asked for bracketed paste, as Claude Code does; cat -v shows the escape bytes it gets. herdr pastes a
+    // prompt as it is: the end of a paste in it would let Shift+Tab after it through as a key.
+    val (pane, _) = catPane("prompt-paste", "printf '\\e[?2004h'; exec -a claude cat -v")
+    reportAgent(pane, "idle")
+    api.promptAgent(pane, "look at this\u001b[201~\u001b[Zand that")
+    val shown = waitForScreen(pane) { it.contains("and that^[[201~") }
+    assertTrue(shown.contains("^[[200~look at this[201~[Zand that^[[201~"), shown)
+  }
+
+  @Test
   fun promptIsRefusedWhileAgentWaitsForAnswer() = runBlocking {
     val (pane, _) = catPane("prompt-blocked")
     reportAgent(pane, "blocked")
@@ -256,7 +269,7 @@ class HerdrIntegrationTest {
   fun pollerDeliversSnapshots() = runBlocking {
     val poller = SessionPoller(api, this, periodMs = 200)
     val ready = withTimeout(5_000) { poller.state.filterIsInstance<SessionState.Ready>().first() }
-    assertEquals(SUPPORTED_PROTOCOL, ready.snapshot.protocol)
+    assertEquals(server.status.server.version, ready.snapshot.version)
     coroutineContext.cancelChildren()
   }
 
@@ -274,7 +287,7 @@ class HerdrIntegrationTest {
     }
   }
 
-  private fun CoroutineScope.control(terminalId: String, cols: Int, rows: Int, takeover: Boolean = false) =
+  private suspend fun CoroutineScope.control(terminalId: String, cols: Int, rows: Int, takeover: Boolean = false) =
     Control(this, TerminalSession(server.transport.exec(terminalControlArgv(HerdrTestServer.binary, server.session, terminalId, cols, rows, takeover))))
 
   @Test
@@ -376,6 +389,20 @@ class HerdrIntegrationTest {
     waitForScreen(bracketed) { it.contains("^[[200~line") }
     b.session.release()
     assertEquals(CloseReason.Detached, b.closed())
+  }
+
+  @Test
+  fun pasteReachesTheAppAsTextAlone() = runBlocking {
+    // cat -v didn't ask for bracketed paste, and its terminal takes Ctrl+C for an interrupt: one in the text would stop it.
+    val (pane, terminal) = catPane("paste-text")
+    val a = control(terminal, 40, 12)
+    assertIs<TerminalEvent.Frame>(a.next())
+    a.session.paste("first\u0003\r\nsecond\n")
+    // The terminal echoes each line and cat prints it again.
+    waitForScreen(pane) { s -> s.lines().count { it.trim() == "second" } >= 2 }
+    assertEquals(2, screen(pane).lines().count { it.trim() == "first" })
+    a.session.release()
+    assertEquals(CloseReason.Detached, a.closed())
   }
 
   @Test

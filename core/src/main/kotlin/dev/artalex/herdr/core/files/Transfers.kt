@@ -21,10 +21,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-/** A transfer under way, [done] of [total] bytes, or one that failed with [error]. */
-data class Transfer(val done: Long, val total: Long?, val error: String? = null) {
+/**
+ * Uploads of one host under way at once; the rest wait for their turn. Each has an SFTP channel of its own, and the
+ * other channels the connection has room for go to downloads ([PARALLEL_DOWNLOADS]), lookups on the host, checks of
+ * paths and the screen's terminal stream. An upload looks up the uploads folder over a channel of its own while it holds
+ * its SFTP channel, so transfers may never take all the room there is
+ * ([dev.artalex.herdr.core.ssh.SshConnection.SESSION_CHANNELS]).
+ */
+const val PARALLEL_UPLOADS = 3
+
+/**
+ * Downloads of one host under way at once, in a queue of their own: a file the user opens doesn't wait for the uploads
+ * before it, which take the other way of the connection anyway.
+ */
+const val PARALLEL_DOWNLOADS = 1
+
+/** A transfer under way, [done] of [total] bytes, or one that failed with [error]; [waiting] for its turn yet. */
+data class Transfer(val done: Long, val total: Long?, val error: String? = null, val waiting: Boolean = false) {
   val percent: Int
     get() = total?.takeIf { it > 0 }?.let { (done * 100 / it).toInt().coerceIn(0, 100) } ?: 0
 }
@@ -64,19 +81,33 @@ interface PhoneSide {
 /** The host's end of transfers. */
 interface HostSide {
   /**
+   * Runs [block], a transfer from start to end, its wait for its turn too: keeps up meanwhile what a transfer needs, such
+   * as the connection.
+   */
+  suspend fun <T> whileTransferring(block: suspend () -> T): T = block()
+
+  /** Waits a while for the connection to the host, for a transfer that is to wait for its turn; [NoConnection] if none comes. */
+  suspend fun awaitConnection() = Unit
+
+  /**
    * Runs [block] with files on the connected host, opened for it, and where uploads go there (a path, or one from
-   * `~/`): waits for the connection a while, and keeps it up meanwhile.
+   * `~/`); [NoConnection], before [block] runs, if there is no connection now.
    */
   suspend fun <T> withFiles(block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T
 }
+
+/** The host has no connection now. */
+class NoConnection : IOException("no connection to the host")
 
 /**
  * Transfers between the phone and the host for the files window: downloads to the phone, uploads to the host's
  * downloads folder, their progress and failures, cancelling and retrying. Each runs in [scope] on its own, so it goes
  * on when the window closes or the screen changes; one that is cancelled or gets stuck lets go of its files
- * ([guarded]). [phone] and [host] are the two ends, [shelf] the server's lists. A shared file names the pane it comes
- * from by [originOf] if no snapshot had that pane yet, and [uploadEnded] hears how each upload ended, for the prompt of
- * the pane it was shared to. [stallMs] and [graceMs] are as for [guarded].
+ * ([guarded]). They take turns, [uploadsAtOnce] uploads and [downloadsAtOnce] downloads at a time, each kind in a queue
+ * of its own: each has files of its own, a channel of the host's connection, which has room for a few only. [phone] and
+ * [host] are the two ends, [shelf] the server's lists. A shared file names the pane it comes from by [originOf] if no
+ * snapshot had that pane yet, and [uploadEnded] hears how each upload ended, for the prompt of the pane it was shared
+ * to. [stallMs] and [graceMs] are as for [guarded].
  */
 class Transfers(
   private val scope: CoroutineScope,
@@ -88,7 +119,12 @@ class Transfers(
   private val log: (String) -> Unit = {},
   private val stallMs: Long = TRANSFER_STALL_MS,
   private val graceMs: Long = TRANSFER_GRACE_MS,
+  uploadsAtOnce: Int = PARALLEL_UPLOADS,
+  downloadsAtOnce: Int = PARALLEL_DOWNLOADS,
 ) {
+  private val uploadTurns = Semaphore(uploadsAtOnce)
+  private val downloadTurns = Semaphore(downloadsAtOnce)
+
   private val _downloads = MutableStateFlow<Map<String, Transfer>>(emptyMap())
 
   /** Downloads under way or failed, by the file's path on the host. */
@@ -170,10 +206,11 @@ class Transfers(
   }
 
   private fun download(file: FoundFile) {
-    _downloads.update { it + (file.path to Transfer(0, file.size)) }
+    _downloads.update { it + (file.path to Transfer(0, file.size, waiting = true)) }
     launchTransfer(downloadKey(file.path)) {
       try {
-        val downloaded = host.withFiles { files, _ -> fetch(files, file) }
+        val started = { _downloads.update { it + (file.path to Transfer(0, file.size)) } }
+        val downloaded = inTurn(downloadTurns, started) { files, _ -> fetch(files, file) }
         _downloads.update { it - file.path }
         if (downloaded != null) _downloaded.tryEmit(downloaded)
       } catch (e: CancellationException) {
@@ -210,11 +247,12 @@ class Transfers(
   }
 
   private fun send(item: Upload) {
-    _uploads.update { list -> listOf(item.copy(transfer = Transfer(0, item.size))) + list.filter { it.id != item.id } }
+    _uploads.update { list -> listOf(item.copy(transfer = Transfer(0, item.size, waiting = true))) + list.filter { it.id != item.id } }
     val job =
       launchTransfer(uploadKey(item.id)) {
         try {
-          val path = host.withFiles { files, uploadDir -> put(files, uploadDir, item) }
+          val started = { _uploads.update { list -> list.map { if (it.id == item.id) it.copy(transfer = Transfer(0, item.size)) else it } } }
+          val path = inTurn(uploadTurns, started) { files, uploadDir -> put(files, uploadDir, item) }
           dismiss(item)
           ended(item, Result.success(path))
         } catch (e: CancellationException) {
@@ -258,6 +296,31 @@ class Transfers(
       // A share to an agent just started may come before a snapshot has its pane.
       shelf().sent(SentFile(path, item.size ?: sent, item.origin ?: item.forPane?.let(originOf)), files.home)
       path
+    }
+  }
+
+  /** Runs [block] with files on the host once a transfer's turn of [turns] comes; [started] hears when it has them. */
+  private suspend fun <T> inTurn(turns: Semaphore, started: () -> Unit, block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T =
+    host.whileTransferring {
+      connectedInTurn(turns) { files, uploadDir ->
+        started()
+        block(files, uploadDir)
+      }
+    }
+
+  /**
+   * [block] with files on the host in a turn of [turns]. The connection is waited for before the turn, by all transfers
+   * at once: in a turn each would wait for it after the one before it had waited in vain. One gone while a transfer waited
+   * for its turn is waited for again, away from the turns.
+   */
+  private suspend fun <T> connectedInTurn(turns: Semaphore, block: suspend (files: RemoteFiles, uploadDir: suspend () -> String) -> T): T {
+    while (true) {
+      host.awaitConnection()
+      try {
+        return turns.withPermit { host.withFiles(block) }
+      } catch (e: NoConnection) {
+        // Gone while the transfer waited for its turn: once more, and the turn goes to the next.
+      }
     }
   }
 

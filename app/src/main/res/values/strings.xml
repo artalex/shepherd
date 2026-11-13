@@ -39,7 +39,7 @@
     <string name="notify_channels_hint">“Agent needs input”, “Agent finished” and “Task not given” in Android settings</string>
     <string name="notify_battery">Background work</string>
     <string name="notify_battery_unrestricted">Unrestricted: checks run on time</string>
-    <string name="notify_battery_restricted">Android may put checks off for an hour or more. Tap to lift the restrictions.</string>
+    <string name="notify_battery_restricted">Android may put checks off for an hour or more. Tap to open the app\'s settings: under battery, choose unrestricted.</string>
     <string name="notify_last_check">Last background check: %1$s. Servers answered: %2$d of %3$d.</string>
     <string name="notify_no_check">No background checks yet.</string>
 
@@ -79,6 +79,8 @@
     <string name="key_share">Share</string>
     <string name="key_copied">Key copied</string>
     <string name="key_fingerprint">Fingerprint: %1$s</string>
+    <string name="privacy_policy">Privacy policy</string>
+    <string name="privacy_policy_url">https://github.com/artalex/shepherd/blob/main/PRIVACY.md</string>
 
     <string name="state_no_key">No phone key: create one in Settings.</string>
     <string name="state_disconnected">Not connected.</string>
@@ -95,7 +97,6 @@
     <string name="problem_bad_session">herdr refuses session name “%1$s”: %2$s</string>
     <string name="problem_herdr_not_running">The herdr server isn\'t running for this session.</string>
     <string name="problem_herdr_too_old">herdr %1$s is too old: 0.9.5 or newer is needed.</string>
-    <string name="problem_wrong_protocol">Unknown herdr protocol version: %1$s.</string>
     <string name="problem_other">Error: %1$s</string>
 
     <string name="host_key_title">New server “%1$s”</string>
@@ -132,6 +133,7 @@
     <string name="status_working">Working</string>
     <string name="status_idle">Idle</string>
     <string name="status_unknown">Unknown</string>
+    <string name="status_stale">Status may be out of date</string>
 
     <string name="agent_back">Back</string>
     <string name="agent_prompt_hint">Prompt for the agent</string>
@@ -158,6 +160,7 @@
     <string name="agent_missing_copied">Setting copied</string>
     <string name="agent_missing_ok">OK</string>
     <string name="agent_no_screen">Waiting for the pane\'s screen…</string>
+    <string name="agent_stale">The screen may be out of date: %1$s</string>
     <string name="error_agent_blocked">The agent is waiting for an answer in a dialog: answer with the buttons.</string>
     <string name="error_agent_not_ready">The agent no longer runs in this pane.</string>
     <string name="agent_starting">The agent is starting…</string>
@@ -228,9 +231,12 @@
     <string name="files_path_failed">Couldn\'t check the path: %1$s</string>
     <string name="files_no_connection">No connection to the host</string>
     <string name="files_no_viewer">Nothing to open %1$s with</string>
+    <string name="files_apk_saved">The APK is in the phone\'s downloads, in the %1$s folder. Install it from there.</string>
+    <string name="files_show_downloads">Downloads</string>
     <string name="files_send">Send files</string>
     <string name="files_outgoing_empty">Files sent from the phone to the host appear here. A tap on a file puts its path into the prompt.</string>
     <string name="files_uploading">sending %1$d %%</string>
+    <string name="files_queued">queued</string>
     <string name="files_upload_failed">not sent: %1$s</string>
     <string name="files_retry">Retry</string>
     <string name="files_dismiss">Dismiss</string>

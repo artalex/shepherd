@@ -13,11 +13,13 @@ import dev.artalex.herdr.core.transport.ProcessStream
  * SFTP. [socketPath] is null only while discovering it with `herdr status`.
  */
 class SshHerdrTransport(private val connection: SshConnection, private val socketPath: String?) : HerdrTransport {
-  override fun openApi(): ByteStream = connection.openStreamLocal(checkNotNull(socketPath) { "herdr API socket is not known yet" })
+  override suspend fun openApi(): ByteStream = connection.streamLocal(checkNotNull(socketPath) { "herdr API socket is not known yet" })
 
-  override fun exec(argv: List<String>): ProcessStream = connection.exec(remoteCommand(argv))
+  override suspend fun exec(argv: List<String>): ProcessStream = connection.execute(remoteCommand(argv))
 
-  override fun openFiles(): RemoteFiles = connection.openFiles()
+  override suspend fun openTerminal(argv: List<String>): ProcessStream = connection.execute(remoteCommand(argv), terminal = true)
+
+  override suspend fun openFiles(): RemoteFiles = connection.sftp()
 }
 
 /** Asks herdr where its API socket is and wraps the session in a [HerdrHost]. [connection] must be connected. */

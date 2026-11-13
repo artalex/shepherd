@@ -1,6 +1,9 @@
 plugins {
   alias(libs.plugins.kotlin.jvm)
   alias(libs.plugins.kotlin.serialization)
+  // Android lint for the core too, though without NewApi: lint checks API levels in Android modules only, so a call
+  // that phones at the app's minSdk lack goes unnoticed in the core.
+  alias(libs.plugins.android.lint)
 }
 
 kotlin {
@@ -24,7 +27,12 @@ dependencies {
 
 testing {
   suites {
-    withType<JvmTestSuite>().configureEach { useJUnitJupiter() }
+    withType<JvmTestSuite>().configureEach {
+      useJUnitJupiter(libs.versions.junitJupiter)
+      // A test JUnit won't run, such as `= runBlocking { … }` whose block ends in a value, fails the run: by default
+      // JUnit only logs a warning and leaves it out, and the run stays green.
+      targets.configureEach { testTask.configure { systemProperty("junit.platform.discovery.issue.severity.critical", "WARNING") } }
+    }
 
     // Runs against a real, isolated herdr server (see HerdrTestServer); skipped where herdr is missing.
     register<JvmTestSuite>("integrationTest") {
@@ -34,7 +42,14 @@ testing {
         implementation(libs.kotlinx.coroutines.core)
         implementation(libs.kotlinx.serialization.json)
       }
-      targets.configureEach { testTask.configure { shouldRunAfter(tasks.named("test")) } }
+      targets.configureEach {
+        testTask.configure {
+          shouldRunAfter(tasks.named("test"))
+          // What the tests check is the herdr and sshd of this machine, and Gradle doesn't see them: a result up to
+          // date or from the build cache would stand for another herdr, or for a run with every test skipped.
+          doNotTrackState("runs against the herdr and sshd installed on this machine")
+        }
+      }
     }
   }
 }

@@ -7,10 +7,12 @@ import dev.artalex.herdr.R
 import dev.artalex.herdr.Server
 import dev.artalex.herdr.Servers
 import dev.artalex.herdr.AgentStartProblem
+import dev.artalex.herdr.connection.ConnectionState
 import dev.artalex.herdr.core.files.FileOrigin
 import dev.artalex.herdr.core.host.HerdrHost
 import dev.artalex.herdr.core.model.AgentKind
 import dev.artalex.herdr.core.model.PaneInfo
+import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.servers.ServerConfig
 import dev.artalex.herdr.core.snippets.Snippet
@@ -22,6 +24,7 @@ import dev.artalex.herdr.core.store.buildBoard
 import dev.artalex.herdr.core.store.paneGrid
 import dev.artalex.herdr.core.store.startNamedAgent
 import dev.artalex.herdr.core.store.startNamedAgentInNewPane
+import dev.artalex.herdr.core.terminal.blankForPrograms
 import dev.artalex.herdr.data.FilesSettings
 import dev.artalex.herdr.data.SnippetStore
 import dev.artalex.herdr.ui.common.PaneKey
@@ -45,15 +48,33 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * What the agent screen shows for its pane, refreshed with every session poll. [starting]: an agent started
- * from here isn't ready for input yet.
+ * from here isn't ready for input yet. [stale]: the last poll failed or there is no connection to poll, and this is the
+ * pane as an earlier snapshot had it.
  */
-data class PaneView(val pane: PaneInfo?, val grid: PaneGrid?, val starting: Boolean = false)
+data class PaneView(val pane: PaneInfo?, val grid: PaneGrid?, val starting: Boolean = false, val stale: Boolean = false)
+
+/**
+ * The view of pane [paneId] once the session is [state], with [known] the view before it: a fresh snapshot's, or the one
+ * before, out of date ([PaneView.stale]). A failed poll leaves the pane as the snapshot before it had it. So does no
+ * connection, which the session tells as [SessionState.Loading]; that while [connected] is only the first poll of a new
+ * poller on its way, as when a screen comes back, and the view stays as it was. Null before the first view.
+ */
+internal fun paneViewOf(paneId: String, state: SessionState, known: PaneView?, connected: Boolean): PaneView? =
+  when (state) {
+    is SessionState.Ready -> state.snapshot.viewOf(paneId)
+    is SessionState.Failed -> (state.last?.snapshot?.viewOf(paneId) ?: known)?.copy(stale = true)
+    SessionState.Loading -> if (connected) known else known?.copy(stale = true)
+  }
+
+private fun SessionSnapshot.viewOf(paneId: String) =
+  PaneView(panes.firstOrNull { it.paneId == paneId }, paneGrid(paneId), agents.any { it.paneId == paneId && it.launchPending })
 
 /** A message for the snackbar: a string resource and its argument. */
 data class UiMessage(val text: Int, val arg: String? = null)
@@ -73,12 +94,26 @@ class AgentViewModel(
   /** The pane at the phone's size, shared with its terminal screen. */
   val stream = server.streams.of(paneId)
 
+  // Outlives resubscriptions, as [seen] below: without a connection the screen keeps what it last knew of the pane.
+  private var known: PaneView? = null
+
   val pane: StateFlow<PaneView?> =
     server.sessions.state
-      .mapNotNull { state ->
-        (state as? SessionState.Ready)?.snapshot?.let {
-          PaneView(it.panes.firstOrNull { p -> p.paneId == paneId }, it.paneGrid(paneId), it.agents.any { a -> a.paneId == paneId && a.launchPending })
-        }
+      .mapNotNull { state -> paneViewOf(paneId, state, known, server.connection.state.value is ConnectionState.Connected)?.also { known = it } }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
+
+  /**
+   * What the screen says over the pane's screen while that may not be the pane as it is now: no connection, no answer to
+   * the session's polls, a stream that broke off; see [screenNotice]. Null while all is well.
+   */
+  val notice: StateFlow<ScreenNotice?> =
+    combine(
+        server.connection.state,
+        server.sessions.state,
+        stream.phase.scan<TerminalPhase, TerminalPhase?>(null) { kept, phase -> keptProblem(kept, phase) },
+        stream.drawn,
+      ) { connection, session, problem, drawn ->
+        screenNotice(connection, session, problem, drawn)
       }
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
@@ -196,10 +231,11 @@ class AgentViewModel(
    * [now]: Ctrl+Enter rather than the send button. Claude Code then gets Ctrl+Enter too, its "send now": a prompt that
    * comes while it works waits for the end of the turn, and Ctrl+Enter hands it over at once. Should the key come before
    * Claude Code has queued the prompt, the prompt waits, as if sent with the button. Other agents get the prompt alone:
-   * Ctrl+Enter may mean something else to them. Without a prompt Ctrl+Enter goes by itself, as from the row.
+   * Ctrl+Enter may mean something else to them. Without a prompt Ctrl+Enter goes by itself, as from the row; so it does
+   * with text that leaves the agent nothing ([blankForPrograms]).
    */
   fun sendPrompt(now: Boolean = false) {
-    if (now && draft.value.text.isBlank()) {
+    if (now && blankForPrograms(draft.value.text)) {
       sendKeys(listOf(SEND_NOW))
       return
     }

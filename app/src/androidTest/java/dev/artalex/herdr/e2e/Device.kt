@@ -1,10 +1,13 @@
 package dev.artalex.herdr.e2e
 
 import android.app.KeyguardManager
+import android.content.ComponentName
+import android.content.Intent
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.artalex.herdr.AppContainer
+import dev.artalex.herdr.MainActivity
 
 /** The emulator itself, for tests that take the app off the screen or lock the device. */
 object Device {
@@ -37,6 +40,17 @@ object Device {
   fun goHome(container: AppContainer) {
     shell("input keyevent KEYCODE_HOME")
     waitFor("app in background") { !container.servers.foreground.value }
+  }
+
+  /**
+   * Brings the app to the screen as a tap on its launcher icon does: the launcher's intent, MAIN and LAUNCHER with
+   * NEW_TASK and RESET_TASK_IF_NEEDED, from another app (the shell). Returns once the start is over.
+   */
+  fun tapLauncherIcon(container: AppContainer) {
+    val app = ComponentName(instrumentation.targetContext, MainActivity::class.java).flattenToShortString()
+    val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+    shell("am start -W -a ${Intent.ACTION_MAIN} -c ${Intent.CATEGORY_LAUNCHER} -f $flags -n $app")
+    waitFor("app on screen") { container.servers.foreground.value }
   }
 
   /**

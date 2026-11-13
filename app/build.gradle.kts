@@ -23,11 +23,12 @@ android {
     namespace = "dev.artalex.herdr"
     compileSdk = 37
     defaultConfig {
-        applicationId = "dev.artalex.herdr"
+        // The package registered in Google Play. The code keeps its own, the namespace above.
+        applicationId = "ru.artalexey.shepherd"
         minSdk = 33
         targetSdk = 37
-        versionCode = 39
-        versionName = "2.28"
+        versionCode = 49
+        versionName = "2.38"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -80,6 +81,12 @@ android {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
+    }
+
+    lint {
+      // A translation whose placeholders differ from the English string's fails only in its own language, when
+      // it's formatted; by default lint only warns.
+      error += "StringFormatCount"
     }
 }
 

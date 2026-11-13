@@ -121,17 +121,23 @@ class TerminalSession(private val stream: ByteStream) {
     closer.cancel()
   }
 
-  suspend fun sendText(text: String) = send(buildJsonObject { put("type", "terminal.input"); put("text", text) })
+  /**
+   * [text] as it is, control characters and all, as if typed: for [paste] and the core's tests. Text from elsewhere goes
+   * through [paste], which makes it text alone.
+   */
+  internal suspend fun sendText(text: String) = send(buildJsonObject { put("type", "terminal.input"); put("text", text) })
 
+  /** Typing, as the emulator encodes the keys: the bytes go as they are. */
   suspend fun sendBytes(bytes: ByteArray) =
     send(buildJsonObject { put("type", "terminal.input"); put("bytes", Base64.getEncoder().encodeToString(bytes)) })
 
   /**
    * Pastes [text] as one bracketed paste. herdr takes the brackets off and puts them back only for an app that asked
-   * for them, so a shell or an agent gets pasted lines as text instead of running them one by one. Escape characters
-   * are dropped: one in the text could end the paste early and run the rest as typed keys.
+   * for them, so a shell or an agent gets pasted lines as text instead of running them one by one. The text goes as
+   * [textForPrograms] makes it: an escape character in it could end the paste early and run the rest as typed keys, and
+   * Ctrl+C would stop an app that didn't ask for the brackets.
    */
-  suspend fun paste(text: String) = sendText(BRACKETED_PASTE_START + text.replace("\u001b", "") + BRACKETED_PASTE_END)
+  suspend fun paste(text: String) = sendText(BRACKETED_PASTE_START + textForPrograms(text) + BRACKETED_PASTE_END)
 
   suspend fun resize(cols: Int, rows: Int) =
     send(buildJsonObject { put("type", "terminal.resize"); put("cols", cols); put("rows", rows) })

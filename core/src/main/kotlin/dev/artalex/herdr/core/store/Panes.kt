@@ -5,6 +5,7 @@ import dev.artalex.herdr.core.model.AgentStatus
 import dev.artalex.herdr.core.model.SessionSnapshot
 import dev.artalex.herdr.core.rpc.ApiError
 import dev.artalex.herdr.core.rpc.HerdrApi
+import dev.artalex.herdr.core.terminal.blankForPrograms
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -92,10 +93,11 @@ fun SessionSnapshot.agentReady(paneId: String): Boolean =
 /**
  * Sends [prompts] in order to the agent in [paneId] once [snapshots] show it ready ([agentReady]): a new agent has to
  * start first, and may ask something before anything else, such as whether to trust its folder. A prompt herdr refuses
- * because the agent shows a dialog waits for a later ready snapshot. Returns the prompts not sent within [timeoutMs].
+ * because the agent shows a dialog waits for a later ready snapshot. A prompt that leaves the agent nothing
+ * ([blankForPrograms]) counts as sent without going. Returns the prompts not sent within [timeoutMs].
  */
 suspend fun promptWhenReady(paneId: String, prompts: List<String>, snapshots: Flow<SessionSnapshot>, timeoutMs: Long, send: suspend (String) -> Unit): List<String> {
-  val left = ArrayDeque(prompts)
+  val left = ArrayDeque(prompts.filterNot(::blankForPrograms))
   withTimeoutOrNull(timeoutMs) {
     while (left.isNotEmpty()) {
       snapshots.first { it.agentReady(paneId) }

@@ -73,7 +73,16 @@ internal class SftpFiles(private val channel: ChannelSftp, private val onClose: 
     for (part in dir.split('/').filter { it.isNotEmpty() }) {
       path += "/$part"
       val entry = stat(path)
-      if (entry == null) sftp("create $path") { channel.mkdir(path) } else if (entry.isFile) throw IOException("$path is a file, not a folder")
+      if (entry == null) {
+        try {
+          channel.mkdir(path)
+        } catch (e: SftpException) {
+          // Another upload of files sent together may have made it in between: a folder there is all it takes.
+          if (stat(path)?.isFile != false) throw IOException("create $path: ${e.message}", e)
+        }
+      } else if (entry.isFile) {
+        throw IOException("$path is a file, not a folder")
+      }
     }
   }
 

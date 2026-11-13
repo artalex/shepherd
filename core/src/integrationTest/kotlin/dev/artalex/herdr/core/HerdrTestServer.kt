@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import org.junit.jupiter.api.Assumptions.assumeTrue
 
 /**
  * A throwaway herdr server for integration tests.
@@ -43,12 +44,15 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
     (if (isolatedConfig) mapOf("XDG_CONFIG_HOME" to "$dir/c", "XDG_STATE_HOME" to "$dir/s") else mapOf("HERDR_CONFIG_PATH" to "${ownConfig()}")) +
       ("PATH" to "${fakeClaudeDir()}:${System.getenv("PATH")}")
   private val server: Process = start(listOf(binary, "--session", session, "server"), File("$dir/server.log"))
+  /** What `herdr status --json` said once the server ran. */
+  val status: HostStatus
   val socket: String
   val transport: HerdrTransport
 
   init {
     check(session.startsWith("hdrt-") || isolatedConfig) { "refusing to run tests against session $session" }
-    socket = waitUntilRunning()
+    status = waitUntilRunning()
+    socket = status.server.socket
     if (isolatedConfig) check(socket.startsWith(dir.toString())) { "test server socket $socket escaped $dir" }
     else check(socket.contains("/sessions/$session/")) { "test server socket $socket is not session $session" }
     transport = LocalTransport()
@@ -56,7 +60,7 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
 
   /** Raw API call for test setup; deliberately bypasses the client's method whitelist. */
   fun raw(method: String, params: JsonObject = JsonObject(emptyMap())): JsonObject {
-    transport.openApi().use { stream ->
+    apiConnection().use { stream ->
       stream.output.writeNdjsonLine(buildJsonObject { put("id", "setup"); put("method", method); put("params", params) }.toString())
       val response = Json.parseToJsonElement(checkNotNull(stream.input.buffered().readNdjsonLine())).jsonObject
       check("error" !in response) { "$method failed: ${response["error"]}" }
@@ -93,14 +97,14 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
     dir.toFile().deleteRecursively()
   }
 
-  private fun waitUntilRunning(): String {
+  private fun waitUntilRunning(): HostStatus {
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
     while (System.nanoTime() < deadline) {
       val out = runCatching { run(listOf(binary, "--session", session, "status", "--json")) }.getOrNull()
       // A status the client can't decode fails the test instead of counting as "not up yet", which hid that a
       // stopped server's status didn't decode.
       val status = out?.takeIf { it.isNotBlank() }?.let { HostStatus.parse(it) }
-      if (status?.server?.running == true) return status.server.socket
+      if (status?.server?.running == true) return status
       Thread.sleep(100)
     }
     error("herdr test server did not start; see $dir/server.log")
@@ -126,25 +130,28 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
     return out
   }
 
+  /** A connection to the server's API socket. */
+  private fun apiConnection(): ByteStream {
+    val channel = SocketChannel.open(UnixDomainSocketAddress.of(socket))
+    return object : ByteStream {
+      override val input: InputStream = Channels.newInputStream(channel)
+      override val output: OutputStream = Channels.newOutputStream(channel)
+
+      override fun closeOutput() {
+        channel.shutdownOutput()
+      }
+
+      override fun close() = channel.close()
+    }
+  }
+
   /** API over the Unix socket, exec as a local process with the isolated environment. */
   private inner class LocalTransport : HerdrTransport {
     private val execs = AtomicInteger()
 
-    override fun openApi(): ByteStream {
-      val channel = SocketChannel.open(UnixDomainSocketAddress.of(socket))
-      return object : ByteStream {
-        override val input: InputStream = Channels.newInputStream(channel)
-        override val output: OutputStream = Channels.newOutputStream(channel)
+    override suspend fun openApi(): ByteStream = apiConnection()
 
-        override fun closeOutput() {
-          channel.shutdownOutput()
-        }
-
-        override fun close() = channel.close()
-      }
-    }
-
-    override fun exec(argv: List<String>): ProcessStream {
+    override suspend fun exec(argv: List<String>): ProcessStream {
       val errors = File("$dir/exec-${execs.incrementAndGet()}.stderr")
       val p = start(argv, errors = errors)
       return object : ProcessStream {
@@ -167,11 +174,24 @@ class HerdrTestServer(private val isolatedConfig: Boolean = true) : AutoCloseabl
 
     val binary: String = System.getenv("HERDR_BIN") ?: "${System.getProperty("user.home")}/.local/bin/herdr"
 
-    /** herdr ≥ 0.9.5 is installed here; otherwise the integration tests are skipped. */
-    val available: Boolean by lazy {
-      if (!File(binary).canExecute()) return@lazy false
-      val version = ProcessBuilder(binary, "--version").start().inputStream.readAllBytes().toString(Charsets.UTF_8).trim()
-      compareVersions(version.removePrefix("herdr "), MIN_HERDR_VERSION) >= 0
+    /**
+     * Why the integration tests can't run here, or null when they can: no herdr at [binary], or one older than
+     * [MIN_HERDR_VERSION]. A preview build counts from the release it was built after, as herdr counts it.
+     */
+    val unavailable: String? by lazy {
+      if (!File(binary).canExecute()) return@lazy "no herdr at $binary"
+      val version = ProcessBuilder(binary, "--version").start().inputStream.readAllBytes().toString(Charsets.UTF_8).trim().removePrefix("herdr ")
+      if (compareVersions(version, MIN_HERDR_VERSION) < 0) "herdr $version at $binary is older than $MIN_HERDR_VERSION" else null
+    }
+
+    /**
+     * Skips the tests of the class whose @BeforeAll calls it where herdr is [unavailable], and says why on stderr: the
+     * test report keeps what a class printed, but not why JUnit skipped it.
+     */
+    fun assumeAvailable() {
+      val reason = unavailable ?: return
+      System.err.println("skipped: $reason")
+      assumeTrue(false, reason)
     }
   }
 }

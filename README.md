@@ -28,9 +28,9 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 - Notifications when an agent needs input or finishes, with the phone locked too.
 - A full terminal for any pane.
 - Web links on the screen open in the phone's browser with a tap, on the agent screen and in the terminal.
-- Files: download a file the agent mentions on screen by its path or a `file://` link, such as a screenshot or an APK,
-  and open it; send files from the phone to the machine. The files window lists the files of its pane or of the pane's
-  whole workspace.
+- Files: download a file the agent mentions on screen by its path or a `file://` link, such as a screenshot, and open
+  it; an APK stays in the phone's downloads, to install from there. Send files from the phone to the machine. The files
+  window lists the files of its pane or of the pane's whole workspace.
 - Share to Shepherd from any app: pick an agent, and shared text goes into its prompt, shared files go to the machine
   with their paths after the text. Or start a new agent for the share with a task, such as "find the recipe of this
   dish": the app starts the agent, sends it its start snippets, the files, then the task with the shared text and the
@@ -77,6 +77,8 @@ when they match. Restart the server when the agents are idle.
   it to curl on stdin, off any command line. Disconnecting the bot takes the file off the servers connected then.
 - The phone connects only to your servers. Telegram is reached from the machine, with curl.
 
+What the app keeps and where it sends it, in full: the [privacy policy](PRIVACY.md), which the settings link to.
+
 ## Build
 
 JDK 21 and the Android SDK (compileSdk 37); the SDK path goes into `local.properties` (`sdk.dir=…`).
@@ -85,9 +87,11 @@ JDK 21 and the Android SDK (compileSdk 37); the SDK path goes into `local.proper
 ./gradlew build                   # build and unit tests
 ./gradlew :app:assembleDebug      # debug APK: app/build/outputs/apk/debug/
 ./gradlew :app:assembleRelease    # release APK: app/build/outputs/apk/release/
+./gradlew :app:bundleRelease      # release bundle for Google Play: app/build/outputs/bundle/release/
 ```
 
-The debug APK (package `dev.artalex.herdr.debug`) needs no signing setup. The release build is minified with R8 and
+The app's package is `ru.artalexey.shepherd`, the one registered in Google Play; the code's own is `dev.artalex.herdr`.
+The debug APK (package `ru.artalexey.shepherd.debug`) needs no signing setup. The release build is minified with R8 and
 signed with a key kept outside the repository. The Gradle property `herdr.signing` points to its properties, by default
 `~/.android-keys/herdr-release.properties`:
 

@@ -251,7 +251,7 @@ class LiveScreenE2eTest {
       compose.waitUntilExactlyOneExists(hasTestTag("sendPrompt") and isEnabled(), 10_000)
       Screens.take(compose, "04c-agent-live-prompt")
       compose.onNodeWithTag("sendPrompt").performClick()
-      fixture.waitForScreen(agent, pump = { compose.waitForIdle() }) { s -> s.lines().count { it.contains("ответ с телефона") } >= 2 }
+      fixture.waitForScreen(agent, pump = { compose.waitForIdle() }) { s -> s.lines().any { it.trim() == "^[[200~ответ с телефона^[[201~" } }
       Thread.sleep(500) // frames arrive as they are drawn
       compose.waitForIdle()
       Screens.take(compose, "04d-agent-live-answered")

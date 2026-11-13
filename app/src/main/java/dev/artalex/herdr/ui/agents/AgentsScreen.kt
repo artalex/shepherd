@@ -60,7 +60,7 @@ import dev.artalex.herdr.core.store.WorkspaceGroup
 import dev.artalex.herdr.files.pickedFile
 import dev.artalex.herdr.theme.Amber
 import dev.artalex.herdr.ui.common.StatusChip
-import dev.artalex.herdr.ui.common.problemText
+import dev.artalex.herdr.ui.common.connectionText
 import dev.artalex.herdr.ui.common.rememberLocalNetworkAccess
 import dev.artalex.herdr.ui.common.rememberNotificationAccess
 import kotlinx.coroutines.Dispatchers
@@ -290,16 +290,10 @@ private fun serverStatus(section: ServerSection): Pair<String, Color>? {
   val muted = MaterialTheme.colorScheme.onSurfaceVariant
   val error = MaterialTheme.colorScheme.error
   if (!section.config.active) return stringResource(R.string.server_off) to muted
-  return when (val state = section.connection) {
-    is ConnectionState.Connected -> if (state.restartNeeded) stringResource(R.string.state_restart_needed) to error else null
-    ConnectionState.Connecting -> stringResource(R.string.state_connecting) to muted
-    ConnectionState.Disconnected -> stringResource(R.string.state_disconnected) to muted
-    ConnectionState.NotConfigured -> stringResource(R.string.state_no_key) to error
-    is ConnectionState.Failed -> {
-      val retry = state.retryInMs?.let { " " + stringResource(R.string.state_retry, (it / 1000).toInt()) } ?: ""
-      problemText(state.problem) + retry to error
-    }
-  }
+  val state = section.connection
+  val text = connectionText(state) ?: return null
+  // On its way or off: muted. A problem: in the error colour.
+  return text to if (state == ConnectionState.Connecting || state == ConnectionState.Disconnected) muted else error
 }
 
 @Composable
