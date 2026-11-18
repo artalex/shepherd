@@ -4,6 +4,8 @@ An Android client for [herdr](https://github.com/herdrdev/herdr), the terminal w
 It connects to the herdr machine over SSH and talks to herdr's API through a forwarded Unix socket: nothing to install
 on the host, no cloud, no backend. On a phone set to Russian the app speaks Russian and is called «Пастух».
 
+Get it on [Google Play](https://play.google.com/store/apps/details?id=ru.artalexey.shepherd).
+
 <p>
   <img src="docs/screenshots/01-agents.png" width="200" alt="The agent list">
   <img src="docs/screenshots/02-agent.png" width="200" alt="An agent that needs input">
@@ -49,8 +51,10 @@ All the screenshots are in [docs/screenshots](docs/screenshots).
 
 ## Setup
 
-1. Build the APK (see [Build](#build)) and install it, for example with
-   `adb install -r app/build/outputs/apk/release/app-release.apk`.
+1. Install the app from [Google Play](https://play.google.com/store/apps/details?id=ru.artalexey.shepherd). Or build
+   the APK (see [Build](#build)) and install it, for example with
+   `adb install -r app/build/outputs/apk/release/app-release.apk`. A build of your own is signed with your key, so it
+   doesn't install over the app from Google Play, nor that one over it.
 2. On the first start the app opens the server form: the machine's address, user, path to herdr and session; the name
    is optional. *Create key* there makes the phone's key. Add its line to `~/.ssh/authorized_keys` on the machine,
    preferably restricted: `no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… herdr-android@<model>`.
